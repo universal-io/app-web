@@ -75,8 +75,19 @@ export type AskInput = {
   signal?: AbortSignal;
 };
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_GATEWAY_BASE_URL ?? "https://api.universal-io.com/api";
+const PRODUCTION_BASE_URL = "https://api.universal-io.com/api";
+
+/**
+ * `??` is the wrong operator for an environment variable, because the value
+ * that actually arrives from an unfilled `.env.local` line is "" rather than
+ * undefined. That produced a base URL of "", which made every request relative
+ * and sent it to the dev server, which answered 404 — a configuration mistake
+ * wearing the costume of a missing route.
+ */
+const configuredBaseURL = process.env.NEXT_PUBLIC_GATEWAY_BASE_URL?.trim();
+const BASE_URL = configuredBaseURL
+  ? configuredBaseURL.replace(/\/+$/, "")
+  : PRODUCTION_BASE_URL;
 
 /**
  * Every request must reach an outcome in bounded time — an answer, or a stated
@@ -140,7 +151,16 @@ export async function askVision(input: AskInput): Promise<VisionSuccess> {
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as GatewayErrorBody | null;
     const code = body?.error?.code ?? `HTTP_${response.status}`;
-    throw new GatewayError(code, messageForCode(code, body?.error?.message));
+    // A response the Gateway did not write means the request never reached it.
+    // Naming the URL that answered turns "something failed" into the one fact
+    // that identifies the cause.
+    if (!body?.error) {
+      throw new GatewayError(
+        code,
+        `Gateway から予期しない応答 (HTTP ${response.status})。送信先: ${BASE_URL}/ai/vision`,
+      );
+    }
+    throw new GatewayError(code, messageForCode(code, body.error.message));
   }
 
   const body = (await response.json().catch(() => null)) as VisionSuccess | null;
