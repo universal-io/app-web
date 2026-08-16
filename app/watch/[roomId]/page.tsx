@@ -9,7 +9,7 @@ import { createViewerPeer } from "@/lib/peer";
 import { joinRoom, type RoomConnection } from "@/lib/room";
 import { ensureSession, SessionError } from "@/lib/session";
 import { Notice } from "@/app/ui";
-import { Snapshot } from "@/app/snapshot";
+import { Snapshot, type Point } from "@/app/snapshot";
 
 type Turn = { role: "user" | "assistant"; text: string };
 
@@ -31,6 +31,7 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
   const [connected, setConnected] = useState(false);
   const [capture, setCapture] = useState<Capture | null>(null);
   const [pointer, setPointer] = useState<Pointer | null>(null);
+  const [stroke, setStroke] = useState<Point[] | null>(null);
   const [question, setQuestion] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [answer, setAnswer] = useState<VisionSuccess | null>(null);
@@ -97,6 +98,7 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
     setError(null);
     setAnswer(null);
     setPointer(null);
+    setStroke(null);
     setTurns([]);
     try {
       setCapture(await captureFrame(videoRef.current));
@@ -109,6 +111,7 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
     setCapture(null);
     setAnswer(null);
     setPointer(null);
+    setStroke(null);
     setTurns([]);
     setQuestion("");
   }, []);
@@ -120,8 +123,9 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
    * history, and the model went on describing the control it had already been
    * asked about — even while correctly boxing the new one.
    */
-  const point = useCallback((next: Pointer | null) => {
+  const point = useCallback((next: Pointer | null, drawn: Point[] | null) => {
     setPointer(next);
+    setStroke(drawn);
     setAnswer(null);
     setTurns([]);
   }, []);
@@ -138,7 +142,7 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
     setBusy(true);
     setError(null);
     try {
-      const imageBase64 = await withPointerMark(capture, pointer);
+      const imageBase64 = await withPointerMark(capture, pointer, stroke);
       const response = await askVision({
         accessToken: session.access_token,
         imageBase64,
@@ -162,7 +166,7 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
     } finally {
       setBusy(false);
     }
-  }, [capture, session, question, pointer, turns]);
+  }, [capture, session, question, pointer, stroke, turns]);
 
   return (
     <div className="fixed inset-0 bg-black">
@@ -191,24 +195,31 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
       )}
 
       {capture && (
-        <div className="absolute inset-0 overflow-y-auto bg-black/80 backdrop-blur-sm">
-          <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-3 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-white/60">この瞬間の画面について聞けます</span>
-              <button onClick={dismiss} className="rounded-full bg-white/10 px-3 py-1 text-sm text-white">
-                閉じる
-              </button>
-            </div>
+        // The snapshot gets the whole screen and scrolls/zooms freely; the
+        // panel floats over its bottom edge. On a phone the frozen frame is
+        // already small, and giving half of it to a text box left nothing to
+        // aim at.
+        <div className="absolute inset-0 flex flex-col bg-black">
+          <div className="flex items-center justify-between px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
+            <span className="text-xs text-white/50">ピンチで拡大・指でなぞって囲めます</span>
+            <button onClick={dismiss} className="rounded-full bg-white/15 px-3 py-1 text-sm text-white">
+              ライブに戻る
+            </button>
+          </div>
 
-            {error && <Notice tone="error">{error}</Notice>}
-
+          <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
             <Snapshot
               capture={capture}
               pointer={pointer}
+              stroke={stroke}
               annotations={answer?.result.annotations ?? []}
               onPointer={point}
             />
+          </div>
 
+          <div className="space-y-2 bg-neutral-900/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
+            {error && <Notice tone="error">{error}</Notice>}
+            {answer && <AnswerPanel answer={answer} />}
             <div className="flex gap-2">
               <input
                 value={question}
@@ -227,8 +238,6 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
                 {busy ? "…" : "聞く"}
               </button>
             </div>
-
-            {answer && <AnswerPanel answer={answer} />}
           </div>
         </div>
       )}
@@ -239,7 +248,7 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
 function AnswerPanel({ answer }: { answer: VisionSuccess }) {
   const { result, meta } = answer;
   return (
-    <div className="space-y-3 rounded-xl bg-white/10 p-4 text-white">
+    <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl bg-white/10 p-3 text-white">
       <p className="whitespace-pre-wrap text-sm leading-relaxed">{result.message}</p>
 
       {result.uncertainties.length > 0 && (

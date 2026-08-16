@@ -27,6 +27,11 @@ const HALO_COLOR = "#FFFFFF";
 export async function withPointerMark(
   capture: Capture,
   pointer: Pointer | null,
+  /** The path actually drawn, when there was one. Burning the loop itself
+   * rather than its bounding box keeps the mark as specific as the gesture:
+   * a ring around three items in a row says something a rectangle covering
+   * their whole neighbourhood does not. */
+  stroke?: { x: number; y: number }[] | null,
 ): Promise<string> {
   if (!pointer) return capture.base64;
 
@@ -42,7 +47,7 @@ export async function withPointerMark(
   // Scaled to the image rather than fixed in pixels, so the mark reads the same
   // on a phone-sized capture and a 1536px one.
   const unit = Math.max(capture.width, capture.height);
-  const stroke = Math.max(2, unit * 0.004);
+  const strokeWidth = Math.max(2, unit * 0.004);
 
   context.lineJoin = "round";
 
@@ -52,7 +57,9 @@ export async function withPointerMark(
     const radius = unit * 0.022;
     // A ring, never a filled dot: whatever was pointed at has to stay visible,
     // or the mark hides the answer.
-    ring(context, cx, cy, radius, stroke);
+    ring(context, cx, cy, radius, strokeWidth);
+  } else if (stroke && stroke.length > 1) {
+    loop(context, stroke, capture.width, capture.height, strokeWidth);
   } else {
     const { x, y, w, h } = pointer.region;
     rect(
@@ -61,7 +68,7 @@ export async function withPointerMark(
       y * capture.height,
       w * capture.width,
       h * capture.height,
-      stroke,
+      strokeWidth,
     );
   }
 
@@ -112,6 +119,25 @@ function rect(
     context.strokeStyle = color;
     context.lineWidth = width;
     context.strokeRect(x, y, w, h);
+  }
+}
+
+/** The hand-drawn loop, closed so it reads as an enclosure rather than a line. */
+function loop(
+  context: CanvasRenderingContext2D,
+  points: { x: number; y: number }[],
+  width: number,
+  height: number,
+  strokeWidth: number,
+): void {
+  for (const [color, lineWidth] of [[HALO_COLOR, strokeWidth * 2.2], [MARK_COLOR, strokeWidth]] as const) {
+    context.beginPath();
+    context.moveTo(points[0].x * width, points[0].y * height);
+    for (const point of points.slice(1)) context.lineTo(point.x * width, point.y * height);
+    context.closePath();
+    context.strokeStyle = color;
+    context.lineWidth = lineWidth;
+    context.stroke();
   }
 }
 

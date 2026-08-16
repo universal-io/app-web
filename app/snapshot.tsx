@@ -5,32 +5,42 @@ import type { Annotation, Pointer } from "@/lib/gateway";
 import type { Capture } from "@/lib/screen-share";
 
 /**
- * The frozen screen, what the user pointed at, and what came back.
+ * The frozen screen, what the user drew on it, and what came back.
  *
- * Everything here lives in the image's normalized 0-1 space and is converted to
- * CSS percentages at the last moment. That is deliberate: the pointer sent to
- * the Gateway and the boxes drawn back over it go through the same conversion,
- * so a coordinate fault shows up as a visibly misplaced ring rather than as a
- * confident answer about the wrong thing (app-ios docs/lessons-from-app-mac.md).
+ * The gesture model is app-ios's, not a new one: one finger, one stroke. Under
+ * a threshold it is a tap meaning "this control"; over it, it is a ring meaning
+ * "whatever is in here", which is how somebody asks about a group of things
+ * they have no name for. The request carries the box around the stroke rather
+ * than its outline — the model reasons about rectangles everywhere else in this
+ * protocol, and a hand-drawn loop is a rectangle's worth of intent anyway —
+ * while the drawn shape stays on screen, because that is what the person will
+ * remember asking about (ios/UniversalIOCopilot/Views/MirrorView.swift).
+ *
+ * Everything lives in the image's normalized 0-1 space and becomes CSS
+ * percentages at the last moment, so the mark sent and the boxes drawn back go
+ * through one conversion. A coordinate fault then shows as a visibly misplaced
+ * ring rather than a confident answer about the wrong thing.
  */
 
-/** Below this, a drag was a click that wobbled rather than a ring. */
-const DRAG_THRESHOLD = 0.02;
+/** How far a finger travels before a tap becomes a ring. app-ios settled on
+ * 24pt; as a fraction of the image it holds at any zoom. */
+const RING_THRESHOLD = 0.03;
 
 type Props = {
   capture: Capture;
   pointer: Pointer | null;
   annotations: Annotation[];
-  onPointer: (pointer: Pointer | null) => void;
+  onPointer: (pointer: Pointer | null, stroke: Point[] | null) => void;
+  stroke: Point[] | null;
 };
 
-type DragState = { startX: number; startY: number; x: number; y: number };
+export type Point = { x: number; y: number };
 
-export function Snapshot({ capture, pointer, annotations, onPointer }: Props) {
+export function Snapshot({ capture, pointer, annotations, onPointer, stroke }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [drag, setDrag] = useState<DragState | null>(null);
+  const [drawing, setDrawing] = useState<Point[] | null>(null);
 
-  function positionOf(event: React.PointerEvent): { x: number; y: number } {
+  function positionOf(event: React.PointerEvent): Point {
     const rect = containerRef.current!.getBoundingClientRect();
     return {
       x: clamp((event.clientX - rect.left) / rect.width),
@@ -39,86 +49,79 @@ export function Snapshot({ capture, pointer, annotations, onPointer }: Props) {
   }
 
   function onPointerDown(event: React.PointerEvent) {
-    const { x, y } = positionOf(event);
-    // Capturing the pointer keeps a ring being drawn from breaking when the
-    // cursor leaves the image mid-drag.
+    // Two fingers is the browser pinching to zoom, not somebody drawing.
+    if (!event.isPrimary) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    setDrag({ startX: x, startY: y, x, y });
+    setDrawing([positionOf(event)]);
   }
 
   function onPointerMove(event: React.PointerEvent) {
-    if (!drag) return;
-    const { x, y } = positionOf(event);
-    setDrag({ ...drag, x, y });
+    if (!drawing || !event.isPrimary) return;
+    setDrawing([...drawing, positionOf(event)]);
   }
 
   function onPointerUp() {
-    if (!drag) return;
-    const w = Math.abs(drag.x - drag.startX);
-    const h = Math.abs(drag.y - drag.startY);
-    if (w < DRAG_THRESHOLD || h < DRAG_THRESHOLD) {
-      onPointer({ kind: "point", point: { x: drag.startX, y: drag.startY } });
+    if (!drawing || drawing.length === 0) return;
+    const box = boundsOf(drawing);
+    if (Math.max(box.w, box.h) < RING_THRESHOLD) {
+      onPointer({ kind: "point", point: drawing[0] }, null);
     } else {
-      onPointer({
-        kind: "region",
-        region: {
-          x: Math.min(drag.startX, drag.x),
-          y: Math.min(drag.startY, drag.y),
-          w,
-          h,
-        },
-      });
+      onPointer({ kind: "region", region: box }, drawing);
     }
-    setDrag(null);
+    setDrawing(null);
   }
 
-  const live = drag && {
-    x: Math.min(drag.startX, drag.x),
-    y: Math.min(drag.startY, drag.y),
-    w: Math.abs(drag.x - drag.startX),
-    h: Math.abs(drag.y - drag.startY),
-  };
+  const live = drawing ?? stroke;
 
   return (
-    <section className="space-y-2">
+    <section>
       <div
         ref={containerRef}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className="relative touch-none select-none overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700"
-        style={{ cursor: "crosshair" }}
+        onPointerCancel={() => setDrawing(null)}
+        className="relative select-none overflow-hidden rounded-xl"
+        style={{ cursor: "crosshair", touchAction: "pinch-zoom" }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={capture.dataURL} alt="共有された画面" className="block w-full" draggable={false} />
 
-        {live && live.w > 0 && (
-          <div className="pointer-events-none absolute border-2 border-blue-500 bg-blue-500/10" style={boxStyle(live)} />
+        {/* The stroke as drawn, not the rectangle derived from it. */}
+        {live && live.length > 1 && (
+          <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
+            <polyline
+              points={live.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill="none"
+              stroke="#22d3ee"
+              strokeWidth={0.006}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+              style={{ strokeWidth: 3 }}
+            />
+          </svg>
         )}
 
-        {!drag && pointer?.kind === "region" && (
-          <div className="pointer-events-none absolute border-2 border-blue-500 bg-blue-500/10" style={boxStyle(pointer.region)} />
-        )}
-
-        {!drag && pointer?.kind === "point" && (
+        {!drawing && pointer?.kind === "point" && (
           <div
-            className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-blue-500 bg-blue-500/20"
+            className="pointer-events-none absolute h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-cyan-400"
             style={{ left: `${pointer.point.x * 100}%`, top: `${pointer.point.y * 100}%` }}
           />
         )}
 
         {annotations.map((annotation) => (
           <div key={annotation.id} className="pointer-events-none absolute" style={boxStyle(annotation.box)}>
-            <div className="h-full w-full rounded-sm border-2 border-amber-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.06)]" />
+            <div className="h-full w-full rounded-sm border-2 border-amber-400" />
             {annotation.label && (
               // The label grows away from the nearer edge. Anchored always to
-              // the left it runs off the screen for anything in the right-hand
+              // the left it ran off the screen for anything in the right-hand
               // column — which is where toolbars, close buttons and overflow
-              // menus live, so it was most of what got labelled.
+              // menus live, so it was most of what ever got labelled.
               <span
                 className={`absolute whitespace-nowrap rounded bg-amber-400 px-1.5 py-0.5 text-xs font-medium text-slate-900 ${
-                  labelSide(annotation.box) === "right" ? "right-0" : "left-0"
-                } ${labelVertical(annotation.box) === "above" ? "bottom-full mb-1" : "top-full mt-1"}`}
+                  annotation.box.x + annotation.box.w / 2 > 0.5 ? "right-0" : "left-0"
+                } ${annotation.box.y + annotation.box.h > 0.88 ? "bottom-full mb-1" : "top-full mt-1"}`}
               >
                 {annotation.label}
               </span>
@@ -130,14 +133,12 @@ export function Snapshot({ capture, pointer, annotations, onPointer }: Props) {
   );
 }
 
-/** Which edge of the box the label hangs from, so it opens inward. */
-function labelSide(box: { x: number; w: number }): "left" | "right" {
-  return box.x + box.w / 2 > 0.5 ? "right" : "left";
-}
-
-/** Near the bottom the label goes above the box for the same reason. */
-function labelVertical(box: { y: number; h: number }): "above" | "below" {
-  return box.y + box.h > 0.88 ? "above" : "below";
+export function boundsOf(points: Point[]): { x: number; y: number; w: number; h: number } {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
 
 function boxStyle(box: { x: number; y: number; w: number; h: number }): React.CSSProperties {
