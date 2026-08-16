@@ -77,6 +77,8 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
           },
           onStateChange: (state) => setConnected(state === "connected"),
           onFailed: setError,
+          // A connection that came good must take its own warning down.
+          onRecovered: () => setError(null),
         });
         room.send({ type: "viewer-ready" });
       } catch (caught) {

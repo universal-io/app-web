@@ -93,6 +93,8 @@ export default function SharePage() {
       peerRef.current = createSharerPeer(captured, room, {
         onStateChange: setPeerState,
         onFailed: setError,
+        // A connection that came good must take its own warning down.
+        onRecovered: () => setError(null),
       });
       setRoomId(id);
       setStream(captured);
