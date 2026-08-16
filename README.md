@@ -182,6 +182,7 @@ investigation §7 の「仮説を立てる前に絵を見る手段を作る」�
 | 6 | `../api-gateway/docs/api-contract.md` | **Gatewayの契約（`pointer`・`annotations`・座標の注意事項）** |
 | 7 | `../api-gateway/docs/design-philosophy.md` | 思想の正本（世界モデル・ハーネスエンジニアリング） |
 | 8 | `../app-ios/HANDOFF.md` | ブラウザ送信の実証実験と、進め方についての教訓 |
+| 9 | [docs/ideation.md](docs/ideation.md) | ブラウザ単体でどこまでできるかの検証済みアイデア集（オーバーレイ・操作転送・入口UX）。**同じ検討を繰り返す前に読む** |
 
 **Gatewayは `../api-gateway`（別リポジトリ）にある。** 2026-08-16に `app-mac/web/` から
 切り出した。`main` へのpushが `api.universal-io.com` の本番デプロイを意味する。
