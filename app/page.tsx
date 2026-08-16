@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { createRoomId, joinRoom, type RoomConnection } from "@/lib/room";
+import { createRoomId, formatRoomId, joinRoom, type RoomConnection } from "@/lib/room";
 import { createSharerPeer } from "@/lib/peer";
 import {
   messageForCaptureError,
@@ -12,6 +12,7 @@ import {
 } from "@/lib/screen-share";
 import { ensureSession, SessionError } from "@/lib/session";
 import { Notice, Shell } from "@/app/ui";
+import { Join } from "@/app/join";
 
 /**
  * The shared side.
@@ -32,7 +33,10 @@ export default function SharePage() {
   const roomRef = useRef<RoomConnection | null>(null);
   const peerRef = useRef<ReturnType<typeof createSharerPeer> | null>(null);
 
-  const unavailable = typeof window === "undefined" ? null : screenShareUnavailableReason();
+  // Read once the session resolves, which only happens in the browser. The
+  // server has no navigator, so deciding there would render the sharing side to
+  // every device — including the phone, which is never the sharing side.
+  const unavailable = ready ? screenShareUnavailableReason() : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -125,17 +129,32 @@ export default function SharePage() {
         </p>
       </header>
 
-      {unavailable && <Notice tone="warn">{messageForCaptureError(unavailable)}</Notice>}
       {error && <Notice tone="error">{error}</Notice>}
 
-      {!stream ? (
-        <button
-          onClick={share}
-          disabled={Boolean(unavailable)}
-          className="self-start rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"
-        >
-          画面を共有
-        </button>
+      {/* A phone cannot capture a screen, so it is never the sharing side.
+          Leading with a share button it can only fail at — which is what the
+          installed Home Screen app opened to — makes the app look broken to
+          the very device it exists to be used from. */}
+      {unavailable ? (
+        <div className="space-y-6">
+          <Join />
+          <p className="rounded-lg bg-slate-100 px-3 py-3 text-xs leading-relaxed text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            この端末では画面を共有できません（スマホ・タブレットのブラウザは画面共有に対応していないためです）。
+            共有はパソコンから行い、この端末はそれを見る側として使います。
+          </p>
+        </div>
+      ) : !stream ? (
+        <div className="space-y-8">
+          <button
+            onClick={share}
+            className="self-start rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-slate-900"
+          >
+            画面を共有
+          </button>
+          <div className="border-t border-slate-200 pt-6 dark:border-slate-700">
+            <Join />
+          </div>
+        </div>
       ) : (
         <div className="space-y-5">
           <div className="flex flex-wrap items-start gap-6">
@@ -148,13 +167,23 @@ export default function SharePage() {
             )}
             <div className="space-y-3">
               <ConnectionState state={peerState} />
-              {viewerURL && (
+              {roomId && (
                 <div className="space-y-1">
-                  <p className="text-xs text-slate-500">またはこのURLを開く</p>
-                  <code className="block break-all rounded bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">
-                    {viewerURL}
+                  <p className="text-xs text-slate-500">
+                    またはスマホでこのコードを入力
+                  </p>
+                  <code className="block rounded bg-slate-100 px-3 py-2 font-mono text-xl tracking-widest dark:bg-slate-800">
+                    {formatRoomId(roomId)}
                   </code>
                 </div>
+              )}
+              {viewerURL && (
+                <details className="text-xs text-slate-500">
+                  <summary className="cursor-pointer">URLで開く</summary>
+                  <code className="mt-1 block break-all rounded bg-slate-100 px-2 py-1 dark:bg-slate-800">
+                    {viewerURL}
+                  </code>
+                </details>
               )}
               <button onClick={stop} className="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600">
                 共有をやめる

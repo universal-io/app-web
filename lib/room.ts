@@ -26,14 +26,40 @@ export type SignalMessage =
   | { type: "sharer-gone" };
 
 /**
- * Room ids are guessable-resistant rather than merely unique: the id is the
- * only thing standing between a room and anyone who tries one, until the
- * privacy model in requirements.md §10 exists. 128 bits from the platform CSPRNG.
+ * Room codes have to be typed, not just scanned.
+ *
+ * On iOS a link opened from the camera goes to Safari, never to an installed
+ * Home Screen app — so for the device this is meant to be installed on, the QR
+ * code cannot be the only way in. A 128-bit hex string was unreadable and
+ * unenterable; eight characters can be read off a screen and typed.
+ *
+ * The alphabet drops the pairs people transcribe wrongly (0/O, 1/I/L), leaving
+ * about 39 bits. That is far short of unguessable, and deliberately so for now:
+ * rooms are ephemeral and the privacy model is explicitly deferred until the
+ * idea has proven useful (docs/requirements.md §10). It must be revisited
+ * before this is put in front of anyone who is not the person sharing.
  */
+const CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+const CODE_LENGTH = 8;
+
 export function createRoomId(): string {
-  const bytes = new Uint8Array(16);
+  const bytes = new Uint8Array(CODE_LENGTH);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
+}
+
+/** Accepts what a person actually types: lower case, stray spaces, the hyphen
+ * the code is displayed with. Returns null when nothing usable is left. */
+export function normalizeRoomId(raw: string): string | null {
+  const code = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (code.length !== CODE_LENGTH) return null;
+  if (![...code].every((character) => CODE_ALPHABET.includes(character))) return null;
+  return code;
+}
+
+/** Grouped for reading aloud and copying by eye. */
+export function formatRoomId(code: string): string {
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
 }
 
 export type RoomConnection = {
