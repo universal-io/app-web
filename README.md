@@ -17,11 +17,29 @@
 ```bash
 npm install
 cp .env.example .env.local   # Supabaseの2値を埋める
-npm run dev                  # http://localhost:3001
+npm run dev                  # http://localhost:7380
 ```
 
-Gatewayは既定で本番（`api.universal-io.com`）を見る。`localhost:3001` はGateway側の
+Gatewayは既定で本番（`api.universal-io.com`）を見る。`localhost:7380` はGateway側の
 CORS許可リストに入っている。
+
+### ポート番号（7380）について
+
+3000〜3010 は create-next-app・Vite・Express の既定値で、**JSエコシステム全体が
+取り合う帯域**である。実際、app-webを最初に起動したとき3001は別プロジェクト2つに
+占有されており、画面には無関係なアプリが表示された（起動失敗が「動いているように
+見える」形で現れる、たちの悪い症状）。
+
+そのため universal-io ファミリーは 10000未満で衝突しない帯を使う。基点は `IO` の
+ASCIIコード（73, 79）から `7379`。
+
+| ポート | 用途 |
+|---|---|
+| 7380 | **app-web（このリポジトリ）** |
+| 7379 | Gateway をローカルで動かす場合の予約（既定は本番を見るので通常不要） |
+
+macOSでは 5000・7000 を AirPlay Receiver が使い、49152以降はOSが外向き接続へ
+割り当てるため、いずれも避ける。
 
 ---
 
