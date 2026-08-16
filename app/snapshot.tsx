@@ -111,18 +111,33 @@ export function Snapshot({ capture, pointer, annotations, onPointer }: Props) {
           <div key={annotation.id} className="pointer-events-none absolute" style={boxStyle(annotation.box)}>
             <div className="h-full w-full rounded-sm border-2 border-amber-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.06)]" />
             {annotation.label && (
-              <span className="absolute left-0 top-full mt-1 whitespace-nowrap rounded bg-amber-400 px-1.5 py-0.5 text-xs font-medium text-slate-900">
+              // The label grows away from the nearer edge. Anchored always to
+              // the left it runs off the screen for anything in the right-hand
+              // column — which is where toolbars, close buttons and overflow
+              // menus live, so it was most of what got labelled.
+              <span
+                className={`absolute whitespace-nowrap rounded bg-amber-400 px-1.5 py-0.5 text-xs font-medium text-slate-900 ${
+                  labelSide(annotation.box) === "right" ? "right-0" : "left-0"
+                } ${labelVertical(annotation.box) === "above" ? "bottom-full mb-1" : "top-full mt-1"}`}
+              >
                 {annotation.label}
               </span>
             )}
           </div>
         ))}
       </div>
-      <p className="text-xs text-slate-500">
-        画像をクリックすると場所を指せます。ドラッグで囲むと範囲で聞けます。
-      </p>
     </section>
   );
+}
+
+/** Which edge of the box the label hangs from, so it opens inward. */
+function labelSide(box: { x: number; w: number }): "left" | "right" {
+  return box.x + box.w / 2 > 0.5 ? "right" : "left";
+}
+
+/** Near the bottom the label goes above the box for the same reason. */
+function labelVertical(box: { y: number; h: number }): "above" | "below" {
+  return box.y + box.h > 0.88 ? "above" : "below";
 }
 
 function boxStyle(box: { x: number; y: number; w: number; h: number }): React.CSSProperties {

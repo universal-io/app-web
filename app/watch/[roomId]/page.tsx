@@ -8,7 +8,7 @@ import { withPointerMark } from "@/lib/marker";
 import { createViewerPeer } from "@/lib/peer";
 import { joinRoom, type RoomConnection } from "@/lib/room";
 import { ensureSession, SessionError } from "@/lib/session";
-import { Notice, Shell } from "@/app/ui";
+import { Notice } from "@/app/ui";
 import { Snapshot } from "@/app/snapshot";
 
 type Turn = { role: "user" | "assistant"; text: string };
@@ -16,16 +16,18 @@ type Turn = { role: "user" | "assistant"; text: string };
 /**
  * The watching side.
  *
- * The mirror runs continuously, but nothing is ever asked about live video:
- * pointing at a moving picture fails because whatever was indicated has already
- * scrolled away by the time the answer arrives. Freezing turns the question
- * into one about a still image that cannot change underneath it — the same
- * mechanism M1 used, now fed by the other device (docs/requirements.md §10).
+ * The mirror fills the screen and never stops. Asking opens over it rather than
+ * replacing it, so the live view is still there underneath and returning to it
+ * costs nothing — the share is a continuous thing being dipped into, not a
+ * sequence of separate sessions.
+ *
+ * Nothing is ever asked about live video: whatever was pointed at has moved by
+ * the time an answer arrives. Freezing makes the question one about a still
+ * image (docs/requirements.md §10).
  */
 export default function WatchPage({ params }: { params: Promise<{ roomId: string }> }) {
   const { roomId } = use(params);
   const [session, setSession] = useState<Session | null>(null);
-  const [ready, setReady] = useState(false);
   const [connected, setConnected] = useState(false);
   const [capture, setCapture] = useState<Capture | null>(null);
   const [pointer, setPointer] = useState<Pointer | null>(null);
@@ -46,8 +48,7 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
         if (!cancelled) {
           setError(caught instanceof SessionError ? caught.message : "セッションを開始できませんでした。");
         }
-      })
-      .finally(() => !cancelled && setReady(true));
+      });
     return () => {
       cancelled = true;
     };
@@ -77,8 +78,6 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
           onStateChange: (state) => setConnected(state === "connected"),
           onFailed: setError,
         });
-        // The sharer offers only once it knows somebody is here; announcing
-        // arrival is what starts the exchange.
         room.send({ type: "viewer-ready" });
       } catch (caught) {
         if (!closed) setError(caught instanceof Error ? caught.message : "接続できませんでした。");
@@ -96,11 +95,33 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
     setError(null);
     setAnswer(null);
     setPointer(null);
+    setTurns([]);
     try {
       setCapture(await captureFrame(videoRef.current));
     } catch {
       setError("映像がまだ届いていません。接続を確認してください。");
     }
+  }, []);
+
+  const dismiss = useCallback(() => {
+    setCapture(null);
+    setAnswer(null);
+    setPointer(null);
+    setTurns([]);
+    setQuestion("");
+  }, []);
+
+  /**
+   * Pointing somewhere new starts a new subject, so the previous exchange is
+   * dropped. Carrying it forward made every tap return the first answer again:
+   * with no typed question there was nothing in the turn to contradict the
+   * history, and the model went on describing the control it had already been
+   * asked about — even while correctly boxing the new one.
+   */
+  const point = useCallback((next: Pointer | null) => {
+    setPointer(next);
+    setAnswer(null);
+    setTurns([]);
   }, []);
 
   const ask = useCallback(async () => {
@@ -115,9 +136,6 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
     setBusy(true);
     setError(null);
     try {
-      // The gesture is drawn into the copy that gets sent, never into the one
-      // on screen: the user is already looking at their own ring, and a second
-      // one baked into the picture would be confusing.
       const imageBase64 = await withPointerMark(capture, pointer);
       const response = await askVision({
         accessToken: session.access_token,
@@ -128,9 +146,12 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
         turns,
       });
       setAnswer(response);
+      // The user's side of the exchange is always recorded, even when they only
+      // pointed: a history of assistant messages with nothing prompting them
+      // reads as the model talking to itself, and it answers accordingly.
       setTurns((previous) => [
         ...previous,
-        ...(asked ? [{ role: "user" as const, text: asked }] : []),
+        { role: "user" as const, text: asked || "（画面のこの場所を指した）" },
         { role: "assistant" as const, text: response.result.message },
       ]);
       setQuestion("");
@@ -141,86 +162,86 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
     }
   }, [capture, session, question, pointer, turns]);
 
-  if (!ready) return <Shell><p className="text-slate-500">読み込み中…</p></Shell>;
-
   return (
-    <Shell>
-      <header className="flex items-baseline justify-between gap-3">
-        <h1 className="text-lg font-semibold">共有された画面</h1>
-        <span className={`text-xs ${connected ? "text-green-700 dark:text-green-400" : "text-slate-500"}`}>
-          {connected ? "接続中" : "接続を待っています…"}
-        </span>
-      </header>
+    <div className="fixed inset-0 bg-black">
+      {/* The live mirror. Always mounted: remounting drops the stream, and it
+          is the thing being watched. */}
+      <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
 
-      {error && <Notice tone="error">{error}</Notice>}
-
-      {/* The live mirror stays mounted whether or not a frame is frozen: it is
-          the thing being watched, and remounting it would drop the stream. */}
-      <div className={capture ? "hidden" : "space-y-3"}>
-        <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-xl border border-slate-200 dark:border-slate-700" />
-        <button
-          onClick={freeze}
-          disabled={!connected}
-          className="w-full rounded-lg bg-blue-600 px-4 py-3 text-base font-medium text-white disabled:opacity-40"
-        >
-          この画面について聞く
-        </button>
-      </div>
-
-      {capture && (
-        <>
-          <Snapshot
-            capture={capture}
-            pointer={pointer}
-            annotations={answer?.result.annotations ?? []}
-            onPointer={setPointer}
-          />
-
-          <div className="flex gap-2">
-            <input
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.nativeEvent.isComposing) ask();
-              }}
-              placeholder="質問（指すだけでも聞けます）"
-              className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-base dark:border-slate-600 dark:bg-slate-800"
-            />
+      {!capture && (
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-[max(1rem,env(safe-area-inset-top))_1rem_max(1rem,env(safe-area-inset-bottom))]">
+          <div className="flex justify-end">
+            <span className={`pointer-events-auto rounded-full px-3 py-1 text-xs backdrop-blur ${connected ? "bg-green-500/20 text-green-200" : "bg-white/10 text-white/70"}`}>
+              {connected ? "接続中" : "接続を待っています…"}
+            </span>
+          </div>
+          <div className="pointer-events-auto space-y-2">
+            {error && <Notice tone="error">{error}</Notice>}
             <button
-              onClick={ask}
-              disabled={busy}
-              className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+              onClick={freeze}
+              disabled={!connected}
+              className="w-full rounded-xl bg-blue-600 px-4 py-4 text-base font-medium text-white shadow-lg disabled:opacity-40"
             >
-              {busy ? "…" : "聞く"}
+              この画面について聞く
             </button>
           </div>
-
-          <button
-            onClick={() => {
-              setCapture(null);
-              setAnswer(null);
-              setPointer(null);
-            }}
-            className="self-start text-sm text-slate-500 underline"
-          >
-            ライブに戻る
-          </button>
-
-          {answer && <AnswerPanel answer={answer} />}
-        </>
+        </div>
       )}
-    </Shell>
+
+      {capture && (
+        <div className="absolute inset-0 overflow-y-auto bg-black/80 backdrop-blur-sm">
+          <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-3 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-white/60">この瞬間の画面について聞けます</span>
+              <button onClick={dismiss} className="rounded-full bg-white/10 px-3 py-1 text-sm text-white">
+                閉じる
+              </button>
+            </div>
+
+            {error && <Notice tone="error">{error}</Notice>}
+
+            <Snapshot
+              capture={capture}
+              pointer={pointer}
+              annotations={answer?.result.annotations ?? []}
+              onPointer={point}
+            />
+
+            <div className="flex gap-2">
+              <input
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing) ask();
+                }}
+                placeholder="質問（指すだけでも聞けます）"
+                className="min-w-0 flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-base text-white placeholder:text-white/40"
+              />
+              <button
+                onClick={ask}
+                disabled={busy}
+                className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+              >
+                {busy ? "…" : "聞く"}
+              </button>
+            </div>
+
+            {answer && <AnswerPanel answer={answer} />}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
 function AnswerPanel({ answer }: { answer: VisionSuccess }) {
   const { result, meta } = answer;
   return (
-    <div className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+    <div className="space-y-3 rounded-xl bg-white/10 p-4 text-white">
       <p className="whitespace-pre-wrap text-sm leading-relaxed">{result.message}</p>
 
       {result.uncertainties.length > 0 && (
-        <ul className="list-disc space-y-1 pl-5 text-sm text-amber-700 dark:text-amber-400">
+        <ul className="list-disc space-y-1 pl-5 text-sm text-amber-300">
           {result.uncertainties.map((item) => <li key={item}>{item}</li>)}
         </ul>
       )}
@@ -231,16 +252,10 @@ function AnswerPanel({ answer }: { answer: VisionSuccess }) {
 
       {/* Injected knowledge is always named: knowledge you cannot see is
           knowledge you can neither question nor correct. */}
-      <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-        {result.skill && (
-          <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-slate-800">
-            使った知識: {result.skill.name}
-          </span>
-        )}
+      <div className="flex flex-wrap gap-2 text-xs text-white/60">
+        {result.skill && <span className="rounded-full bg-white/10 px-2 py-1">使った知識: {result.skill.name}</span>}
         {typeof meta.latency_ms === "number" && (
-          <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-slate-800">
-            {(meta.latency_ms / 1000).toFixed(1)}秒
-          </span>
+          <span className="rounded-full bg-white/10 px-2 py-1">{(meta.latency_ms / 1000).toFixed(1)}秒</span>
         )}
       </div>
     </div>
