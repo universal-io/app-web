@@ -111,6 +111,11 @@ URLで配布（＝URLにコンテキストパックを紐づければ「うち�
 
 ## 残課題（2026-08-16 時点。次のセッションはここから）
 
+> **方針更新（2026-08-17）: 次の実装対象はPC内完結（ソロ）モード。**
+> 要件定義は [docs/requirements-solo.md](docs/requirements-solo.md)（M3a から着手）。
+> 2台構成（M2）はそのまま残す。以下の残課題は引き続き有効で、特に #1 の座標精度は
+> ソロモードにもそのまま効く。
+
 ### 🔴 1. 座標精度 — 未解決。次にやるべきはこれ
 
 タップ・囲みで指した対象と、返ってくる枠・解説が一致しないことがある。
@@ -183,6 +188,7 @@ investigation §7 の「仮説を立てる前に絵を見る手段を作る」�
 | 7 | `../api-gateway/docs/design-philosophy.md` | 思想の正本（世界モデル・ハーネスエンジニアリング） |
 | 8 | `../app-ios/HANDOFF.md` | ブラウザ送信の実証実験と、進め方についての教訓 |
 | 9 | [docs/ideation.md](docs/ideation.md) | ブラウザ単体でどこまでできるかの検証済みアイデア集（オーバーレイ・操作転送・入口UX）。**同じ検討を繰り返す前に読む** |
+| 10 | [docs/requirements-solo.md](docs/requirements-solo.md) | **PC内完結（ソロ）モードの要件定義。次の実装対象** |
 
 **Gatewayは `../api-gateway`（別リポジトリ）にある。** 2026-08-16に `app-mac/web/` から
 切り出した。`main` へのpushが `api.universal-io.com` の本番デプロイを意味する。
