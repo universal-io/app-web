@@ -11,8 +11,7 @@ import {
   startScreenShare,
   type Capture,
 } from "@/lib/screen-share";
-import { supabaseBrowserClient } from "@/lib/supabase";
-import { SignIn } from "@/app/sign-in";
+import { ensureSession, SessionError } from "@/lib/session";
 import { Snapshot } from "@/app/snapshot";
 
 type Turn = { role: "user" | "assistant"; text: string };
@@ -32,14 +31,28 @@ export default function Home() {
 
   const unavailable = typeof window === "undefined" ? null : screenShareUnavailableReason();
 
+  // The session is obtained on load and never asked for. Nothing on this page
+  // is gated behind it; it exists so the Gateway can meter the request.
   useEffect(() => {
-    const supabase = supabaseBrowserClient();
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setAuthReady(true);
-    });
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
-    return () => data.subscription.unsubscribe();
+    let cancelled = false;
+    ensureSession()
+      .then((next) => {
+        if (!cancelled) setSession(next);
+      })
+      .catch((caught: unknown) => {
+        if (cancelled) return;
+        setError(
+          caught instanceof SessionError
+            ? caught.message
+            : "セッションを開始できませんでした。",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setAuthReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -97,7 +110,13 @@ export default function Home() {
   }, []);
 
   const ask = useCallback(async () => {
-    if (!capture || !session) return;
+    if (!capture) return;
+    if (!session) {
+      // Reaching here means the anonymous sign-in failed earlier. Saying so at
+      // the moment of the attempt beats a button that quietly does nothing.
+      setError("セッションがありません。ページを再読み込みしてください。");
+      return;
+    }
     const asked = question.trim();
     // A pointer with no words is a complete question: it is somebody asking
     // about a thing they cannot name, which is the case this product exists for.
@@ -132,9 +151,6 @@ export default function Home() {
 
   if (!authReady) {
     return <Shell><p className="text-slate-500">読み込み中…</p></Shell>;
-  }
-  if (!session) {
-    return <Shell><SignIn /></Shell>;
   }
 
   return (

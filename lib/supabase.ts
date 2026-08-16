@@ -25,6 +25,22 @@ export function supabaseBrowserClient(): SupabaseClient {
       "NEXT_PUBLIC_SUPABASE_URL と NEXT_PUBLIC_SUPABASE_ANON_KEY が設定されていません。",
     );
   }
+  // Both values are opaque strings pasted from a dashboard that shows them one
+  // above the other, so putting them in the wrong order is the likely mistake
+  // rather than an unlikely one. Their shapes are unmistakable — a URL against
+  // a JWT — and saying so costs one line, where the library's own message
+  // ("Invalid supabaseUrl") sends the reader to look at the code instead.
+  if (url.startsWith("eyJ") && anonKey.startsWith("http")) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL と NEXT_PUBLIC_SUPABASE_ANON_KEY の値が逆です。"
+      + " URL（https://….supabase.co）と anon key（eyJ… で始まるJWT）を入れ替えてください。",
+    );
+  }
+  if (!url.startsWith("http")) {
+    throw new Error(
+      `NEXT_PUBLIC_SUPABASE_URL が URL ではありません（https://….supabase.co の形）。現在の値の先頭: ${url.slice(0, 12)}…`,
+    );
+  }
   client = createClient(url, anonKey, {
     auth: { persistSession: true, autoRefreshToken: true },
   });
