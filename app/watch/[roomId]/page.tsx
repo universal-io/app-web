@@ -4,6 +4,7 @@ import { use, useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { askVision, GatewayError, type Pointer, type VisionSuccess } from "@/lib/gateway";
 import { captureFrame, type Capture } from "@/lib/screen-share";
+import { withPointerMark } from "@/lib/marker";
 import { createViewerPeer } from "@/lib/peer";
 import { joinRoom, type RoomConnection } from "@/lib/room";
 import { ensureSession, SessionError } from "@/lib/session";
@@ -114,9 +115,13 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
     setBusy(true);
     setError(null);
     try {
+      // The gesture is drawn into the copy that gets sent, never into the one
+      // on screen: the user is already looking at their own ring, and a second
+      // one baked into the picture would be confusing.
+      const imageBase64 = await withPointerMark(capture, pointer);
       const response = await askVision({
         accessToken: session.access_token,
-        imageBase64: capture.base64,
+        imageBase64,
         mediaType: capture.mediaType,
         question: asked || undefined,
         pointer: pointer ?? undefined,
