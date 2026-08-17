@@ -10,6 +10,7 @@ import { joinRoom, type RoomConnection } from "@/lib/room";
 import { ensureSession, SessionError } from "@/lib/session";
 import { Notice } from "@/app/ui";
 import { Snapshot, type Point } from "@/app/snapshot";
+import { AnswerPanel, QuestionInput } from "@/app/ask";
 
 type Turn = { role: "user" | "assistant"; text: string };
 
@@ -220,55 +221,10 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
           <div className="space-y-2 bg-neutral-900/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
             {error && <Notice tone="error">{error}</Notice>}
             {answer && <AnswerPanel answer={answer} />}
-            <div className="flex gap-2">
-              <input
-                value={question}
-                onChange={(event) => setQuestion(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.nativeEvent.isComposing) ask();
-                }}
-                placeholder="質問（指すだけでも聞けます）"
-                className="min-w-0 flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-base text-white placeholder:text-white/40"
-              />
-              <button
-                onClick={ask}
-                disabled={busy}
-                className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
-              >
-                {busy ? "…" : "聞く"}
-              </button>
-            </div>
+            <QuestionInput value={question} onChange={setQuestion} onSubmit={ask} busy={busy} />
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function AnswerPanel({ answer }: { answer: VisionSuccess }) {
-  const { result, meta } = answer;
-  return (
-    <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl bg-white/10 p-3 text-white">
-      <p className="whitespace-pre-wrap text-sm leading-relaxed">{result.message}</p>
-
-      {result.uncertainties.length > 0 && (
-        <ul className="list-disc space-y-1 pl-5 text-sm text-amber-300">
-          {result.uncertainties.map((item) => <li key={item}>{item}</li>)}
-        </ul>
-      )}
-
-      {meta.notices?.map((notice) => (
-        <Notice key={notice.code} tone="warn">{notice.message}</Notice>
-      ))}
-
-      {/* Injected knowledge is always named: knowledge you cannot see is
-          knowledge you can neither question nor correct. */}
-      <div className="flex flex-wrap gap-2 text-xs text-white/60">
-        {result.skill && <span className="rounded-full bg-white/10 px-2 py-1">使った知識: {result.skill.name}</span>}
-        {typeof meta.latency_ms === "number" && (
-          <span className="rounded-full bg-white/10 px-2 py-1">{(meta.latency_ms / 1000).toFixed(1)}秒</span>
-        )}
-      </div>
     </div>
   );
 }

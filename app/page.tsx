@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import QRCode from "qrcode";
 import { createRoomId, formatRoomId, joinRoom, type RoomConnection } from "@/lib/room";
 import { createSharerPeer } from "@/lib/peer";
@@ -145,12 +146,34 @@ export default function SharePage() {
         </div>
       ) : !stream ? (
         <div className="space-y-8">
-          <button
-            onClick={share}
-            className="self-start rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-slate-900"
-          >
-            画面を共有
-          </button>
+          {/* Solo mode first. Somebody who was sent this link is stuck now, on
+              this machine, and pairing a second device is a detour they did not
+              ask for (docs/requirements-solo.md §0). */}
+          <div className="space-y-2">
+            <Link
+              href="/solo"
+              className="inline-block rounded-lg bg-blue-600 px-4 py-3 text-base font-medium text-white"
+            >
+              このパソコンの画面について聞く
+            </Link>
+            <p className="text-sm text-slate-500">
+              画面を選ぶと、直前に見ていた画面が映ります。分からないところを指して質問できます。
+            </p>
+          </div>
+          <div className="space-y-3 border-t border-slate-200 pt-6 dark:border-slate-700">
+            <div className="space-y-1">
+              <h2 className="text-base font-medium">スマホやタブレットから質問する</h2>
+              <p className="text-sm text-slate-500">
+                この画面を手元の端末に映して質問します。作業画面を奪いません。
+              </p>
+            </div>
+            <button
+              onClick={share}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium dark:border-slate-600"
+            >
+              画面を共有
+            </button>
+          </div>
           <div className="border-t border-slate-200 pt-6 dark:border-slate-700">
             <Join />
           </div>
