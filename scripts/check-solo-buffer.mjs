@@ -14,7 +14,7 @@
 // What it CANNOT tell you: whether a real backgrounded tab keeps being fed
 // frames, and how often. The tab here is only pretending to be hidden, so its
 // timers are not throttled. That number has to come from `?debug` on a real
-// share (docs/requirements-solo.md §7).
+// share (docs/solo-mode.md §7).
 import { chromium } from "playwright";
 
 const BASE = "http://localhost:7380";
@@ -25,7 +25,7 @@ function check(ok, label, detail = "") {
   console.log(`${ok ? "✓" : "✗"} ${label}${detail ? ` (${detail})` : ""}`);
 }
 
-const stub = (surface) => {
+const stub = ({ surface, holdsFocus }) => {
   const canvas = document.createElement("canvas");
   canvas.width = 1280;
   canvas.height = 800;
@@ -58,6 +58,18 @@ const stub = (surface) => {
   track.getSettings = () => ({ ...settings(), displaySurface: surface });
   navigator.mediaDevices.getDisplayMedia = async () => stream;
 
+  // setFocusBehavior only works on a controller the browser itself handed to a
+  // real getDisplayMedia call, so a stand-in stands in for it. What is being
+  // tested here is what the page does once focus IS held, not the API.
+  if (holdsFocus) {
+    window.CaptureController = class {
+      setFocusBehavior() {}
+      forwardWheel() { return Promise.resolve(); }
+    };
+  } else {
+    delete window.CaptureController;
+  }
+
   let away = false;
   Object.defineProperty(document, "hidden", { configurable: true, get: () => away });
   Object.defineProperty(document, "visibilityState", {
@@ -74,10 +86,10 @@ const stub = (surface) => {
 
 const browser = await chromium.launch({ channel: "chrome" });
 
-async function open(surface) {
+async function open(surface, holdsFocus = false) {
   const page = await browser.newPage();
   page.on("pageerror", (error) => console.log("PAGE ERROR:", error.message));
-  await page.addInitScript(stub, surface);
+  await page.addInitScript(stub, { surface, holdsFocus });
   await page.goto(`${BASE}/solo?debug`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "画面を選ぶ" }).click();
   return page;
@@ -176,6 +188,44 @@ console.log("\n[ウィンドウを共有]");
   await page.waitForTimeout(900);
   const after = await page.locator('img[alt="共有された画面"]').getAttribute("src");
   check(after !== before, "戻ってくると撮り直されている");
+  await page.close();
+}
+
+// ── タブを共有し、フォーカスをこのページに留めた場合（主経路） ──────
+console.log("\n[タブを共有・フォーカス保持]");
+{
+  const page = await open("browser", true);
+  await page.waitForSelector("text=このタブから見ています");
+  check(true, "「このタブから見ています」と表示される");
+  check(
+    (await page.locator("video").first().isVisible()) &&
+      (await page.locator('img[alt="共有された画面"]').count()) === 0,
+    "既定はライブ映像で、静止画は出ていない",
+  );
+  check((await strip(page)) === 0, "候補バッファは動かない");
+
+  // Nothing is asked about live video; freezing is what makes a question
+  // answerable at all.
+  await page.getByRole("button", { name: "この画面について聞く" }).click();
+  await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
+  check(true, "「この画面について聞く」で静止する");
+
+  const box = await page.locator('img[alt="共有された画面"]').boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(250);
+  check((await page.locator("div.rounded-full.border-cyan-400").count()) === 1, "静止画にタップで印がつく");
+
+  await page.getByRole("button", { name: "ライブに戻る" }).click();
+  await page.waitForTimeout(250);
+  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "「ライブに戻る」で静止画が消える");
+
+  // Leaving and returning must not disturb a watched tab: it never went stale.
+  await page.evaluate(() => window.__setAway(true));
+  await page.waitForTimeout(1600);
+  await page.evaluate(() => window.__setAway(false));
+  await page.waitForTimeout(400);
+  check((await strip(page)) === 0, "離れて戻っても候補は作られない");
+  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "離れて戻ってもライブのまま");
   await page.close();
 }
 

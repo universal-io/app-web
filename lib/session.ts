@@ -16,7 +16,7 @@ import { supabaseBrowserClient } from "@/lib/supabase";
  * Anonymous users are provisioned exactly like any other: bs_provision_user
  * gives them a personal tenant on the free plan. Narrowing that to a smaller
  * guest allowance is an anti-abuse measure for a public URL, not a prerequisite
- * for the product working (app-web/docs/requirements.md §5-D).
+ * for the product working (docs/two-device-mode.md §5).
  */
 export async function ensureSession(): Promise<Session> {
   const supabase = supabaseBrowserClient();

@@ -24,7 +24,7 @@ type Turn = { role: "user" | "assistant"; text: string };
  *
  * Nothing is ever asked about live video: whatever was pointed at has moved by
  * the time an answer arrives. Freezing makes the question one about a still
- * image (docs/requirements.md §10).
+ * image (docs/two-device-mode.md §2).
  */
 export default function WatchPage({ params }: { params: Promise<{ roomId: string }> }) {
   const { roomId } = use(params);

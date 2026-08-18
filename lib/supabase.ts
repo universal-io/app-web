@@ -9,7 +9,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
  *
  * M1 signs in with an existing account. The anonymous guest flow that makes
  * "open a link and go" real needs a `guest` plan and a provisioning branch that
- * do not exist in the Gateway yet (app-web/docs/requirements.md §5-D), and
+ * do not exist in the Gateway yet (docs/two-device-mode.md §5), and
  * shipping without it would only mean a sign-in wall, not a broken product.
  */
 let client: SupabaseClient | null = null;

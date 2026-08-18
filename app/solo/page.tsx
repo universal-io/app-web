@@ -10,10 +10,10 @@ import {
   screenShareUnavailableReason,
   ScreenShareError,
   startScreenShare,
-  surfaceOf,
   type Capture,
   type DisplaySurface,
   type FrameSource,
+  type Share,
 } from "@/lib/screen-share";
 import {
   recordRecentScreens,
@@ -34,7 +34,7 @@ type Turn = { role: "user" | "assistant"; text: string };
  *
  * The premise of this mode is that somebody stuck on something should be able
  * to open a link and be looking at their own problem within seconds, having
- * installed nothing and learned nothing (docs/requirements-solo.md §0). Every
+ * installed nothing and learned nothing (docs/capabilities.md §1). Every
  * decision here is subordinate to that: the only thing the user is ever asked
  * to decide is which surface to share, and the only thing they are ever told is
  * to go back to the screen they were stuck on.
@@ -51,6 +51,7 @@ export default function SoloPage() {
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [surface, setSurface] = useState<DisplaySurface>("monitor");
+  const [keptFocus, setKeptFocus] = useState(false);
   const [screens, setScreens] = useState<RecentScreen[]>([]);
   const [index, setIndex] = useState(0);
   /** Window and tab shares have no hall of mirrors, so they need no buffer:
@@ -79,6 +80,17 @@ export default function SoloPage() {
   const sourceRef = useRef<FrameSource | null>(null);
   const recorderRef = useRef<RecentScreensHandle | null>(null);
 
+  /**
+   * Three shares, three different things the page can honestly offer.
+   *
+   * A tab, with focus held here, can be watched live from this page: the user
+   * never leaves, so there is nothing to remember for them and nothing to come
+   * back to. A window has to be brought to the front to keep redrawing, so it
+   * is watched by going there and returning. A whole monitor contains this very
+   * page, so it can only be seen as it was a moment ago — which is what the
+   * buffer is for, and why it exists only for this one case.
+   */
+  const watched = surface === "browser" && keptFocus;
   const buffered = surface === "monitor";
 
   // Read once the session resolves, which only happens in the browser. Deciding
@@ -105,6 +117,9 @@ export default function SoloPage() {
   }, []);
 
   const currentCapture: Capture | null = buffered ? (screens[index]?.capture ?? null) : frozen;
+  /** Live is the default for a watched tab; a still only appears once there is
+   * something to ask about, and "ライブに戻る" puts it away again. */
+  const showingLive = watched && frozen === null;
   const belongsToCurrent = mark !== null && mark.capture === currentCapture;
   const pointer = belongsToCurrent ? mark.pointer : null;
   const stroke = belongsToCurrent ? mark.stroke : null;
@@ -116,6 +131,7 @@ export default function SoloPage() {
     sourceRef.current = null;
     stream?.getTracks().forEach((track) => track.stop());
     setStream(null);
+    setKeptFocus(false);
     setScreens([]);
     setIndex(0);
     setFrozen(null);
@@ -128,25 +144,20 @@ export default function SoloPage() {
 
   const share = useCallback(async () => {
     setError(null);
-    let captured: MediaStream;
+    let share: Share;
     try {
-      // The whole monitor is what this mode is built around, so that is the
-      // pane the picker opens on. Choosing a single window still works and is
-      // handled — it is the privacy grammar people already know from meetings,
-      // and correcting it would be worse than supporting it.
-      captured = await startScreenShare({ prefer: "monitor" });
+      // A tab is the surface this mode is built around, because a tab is the
+      // only one that can be watched from here without going to it. The picker
+      // is asked to open there — Chrome 151 ignores the request, so it is a
+      // preference and not a mechanism.
+      share = await startScreenShare({ prefer: "browser" });
     } catch (caught) {
       setError(caught instanceof ScreenShareError ? caught.message : messageForCaptureError("capture-failed"));
       return;
     }
-    const [track] = captured.getVideoTracks();
-    if (!track) {
-      captured.getTracks().forEach((each) => each.stop());
-      setError(messageForCaptureError("no-video-track"));
-      return;
-    }
-    setSurface(surfaceOf(track));
-    setStream(captured);
+    setSurface(share.surface);
+    setKeptFocus(share.keptFocus);
+    setStream(share.stream);
   }, []);
 
   // Stopping from the browser's own bar has to end things here too, or the page
@@ -171,7 +182,12 @@ export default function SoloPage() {
     // failure here would show as an empty screen with nothing said about it.
     for (let attempt = 0; attempt < 6; attempt += 1) {
       try {
-        return (await source.grab()).capture;
+        const frame = await source.grab();
+        // Window and tab shares keep no buffer, so this is the only place that
+        // can report which route the frames came by. A debug panel that shows a
+        // default in place of the truth is worse than one that shows nothing.
+        setReport({ intervals: [], viaTrack: source.viaTrack });
+        return frame.capture;
       } catch {
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
@@ -198,7 +214,11 @@ export default function SoloPage() {
           setReport(latest);
         },
       });
-    } else {
+    } else if (!watched) {
+      // A window share: take one now, because the user is looking at that
+      // window and not at this page. A watched tab takes none — it is on screen
+      // live, and freezing it before being asked would be answering a question
+      // nobody put.
       void grabNow().then((capture) => capture && setFrozen(capture));
     }
 
@@ -208,7 +228,7 @@ export default function SoloPage() {
       source.close();
       sourceRef.current = null;
     };
-  }, [stream, buffered, grabNow]);
+  }, [stream, buffered, watched, grabNow]);
 
   /**
    * Coming back to this tab is the whole interaction, so it is treated as one:
@@ -221,6 +241,7 @@ export default function SoloPage() {
     if (!stream) return;
     function onReturn() {
       if (document.hidden) return;
+      if (watched) return;
       if (buffered) {
         setIndex(0);
       } else {
@@ -233,14 +254,14 @@ export default function SoloPage() {
       document.removeEventListener("visibilitychange", onReturn);
       window.removeEventListener("focus", onReturn);
     };
-  }, [stream, buffered, grabNow]);
+  }, [stream, buffered, watched, grabNow]);
 
   /**
    * Choosing a different screen by hand means a different subject, so the
    * exchange goes with it — the same rule as pointing somewhere new. Being
    * moved to the newest screen on returning to the tab is not that, and keeps
    * everything: coming back to re-read an answer is a normal reason to come
-   * back (docs/requirements-solo.md §2-5).
+   * back (docs/solo-mode.md §5).
    */
   const selectCandidate = useCallback((at: number) => {
     setIndex(at);
@@ -273,6 +294,31 @@ export default function SoloPage() {
     setAnswer(null);
     setTurns([]);
   }, [currentCapture]);
+
+  /**
+   * Stopping the live tab on the moment worth asking about.
+   *
+   * A new still is a new subject: the exchange so far was about a different
+   * state of that page, and carrying it forward is how a model ends up
+   * confidently describing something that has since scrolled away.
+   */
+  const freeze = useCallback(async () => {
+    setError(null);
+    const capture = await grabNow();
+    if (!capture) return;
+    setFrozen(capture);
+    setMark(null);
+    setAnswer(null);
+    setTurns([]);
+  }, [grabNow]);
+
+  const backToLive = useCallback(() => {
+    setFrozen(null);
+    setMark(null);
+    setAnswer(null);
+    setTurns([]);
+    setQuestion("");
+  }, []);
 
   const newTopic = useCallback(() => {
     setMark(null);
@@ -347,9 +393,9 @@ export default function SoloPage() {
     return (
       <Shell>
         <header className="space-y-1">
-          <h1 className="text-xl font-semibold">いま見ている画面について聞く</h1>
+          <h1 className="text-xl font-semibold">説明してほしい画面を選ぶ</h1>
           <p className="text-sm text-slate-500">
-            画面を選ぶと、その後にあなたが見ていた画面をここに映します。分からない場所を指して質問できます。
+            選んだ画面がこのページに映ります。分からない場所を指して質問できます。
           </p>
         </header>
         {error && <Notice tone="error">{error}</Notice>}
@@ -359,10 +405,20 @@ export default function SoloPage() {
         >
           画面を選ぶ
         </button>
-        <p className="rounded-lg bg-slate-100 px-3 py-3 text-xs leading-relaxed text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          「画面全体」を選ぶのがおすすめです。映った画面のうち、あなたが選んで質問した1枚だけが送信されます。
-          それ以外はこのタブの中だけに置かれ、共有をやめると消えます。
-        </p>
+        {/* The picker's three panes are the browser's, not ours: they cannot be
+            reordered or removed, and Chrome 151 ignores which one we ask it to
+            open on. So the difference between them is explained here instead,
+            in the order of how well each one works. */}
+        <div className="space-y-2 rounded-lg bg-slate-100 px-3 py-3 text-xs leading-relaxed text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <p>
+            <strong>「Chrome のタブ」から選ぶのが一番うまく動きます。</strong>
+            そのタブに移動せずに、このページに映したまま見て質問できます。
+          </p>
+          <p>
+            ウィンドウや画面全体でも使えますが、そちらは一度その画面に行って戻ってくる必要があります。
+          </p>
+          <p>選んだ画面のうち、あなたが質問した1枚だけが送信されます。それ以外はこのタブの中だけに置かれ、共有をやめると消えます。</p>
+        </div>
         <Link href="/" className="self-start text-sm text-slate-500 underline">
           スマホやタブレットから質問する（2台で使う）
         </Link>
@@ -373,20 +429,15 @@ export default function SoloPage() {
   return (
     <div className="fixed inset-0 flex flex-col bg-black text-white">
       <header className="flex items-center gap-3 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
-        {/* Kept small but kept: on browsers without ImageCapture this element is
-            the only thing still decoding frames, and a video that is not
-            displayed is not guaranteed to decode (docs/inception.md §8). */}
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          className="w-16 shrink-0 rounded border border-white/15 opacity-40"
-        />
         <span className="text-xs text-white/50">
-          {buffered ? "共有中（画面全体）" : "共有中（ウィンドウ）"}
+          {watched ? "このタブから見ています" : buffered ? "共有中（画面全体）" : "共有中（ウィンドウ）"}
         </span>
         <div className="ml-auto flex shrink-0 gap-2">
+          {watched && !showingLive && (
+            <button onClick={backToLive} className="rounded-full bg-white/15 px-3 py-1 text-sm">
+              ライブに戻る
+            </button>
+          )}
           {turns.length > 0 && (
             <button onClick={newTopic} className="rounded-full bg-white/15 px-3 py-1 text-sm">
               新しく聞く
@@ -398,38 +449,74 @@ export default function SoloPage() {
         </div>
       </header>
 
-      {debug && <DebugPanel screens={screens} report={report} index={index} />}
+      {debug && <DebugPanel screens={screens} report={report} index={index} buffered={buffered} watched={watched} />}
 
-      {!currentCapture ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-          {buffered ? (
-            <>
-              {/* The only thing this mode ever teaches, and it is shown once:
-                  after the first return there is always a screen here instead. */}
-              <p className="text-lg font-medium">分からない画面に戻ってください</p>
-              <p className="max-w-md text-sm leading-relaxed text-white/60">
-                このタブに戻ってくると、あなたが見ていた画面がここに映ります。
-                そうしたら、分からないところを指して質問してください。
-              </p>
-            </>
-          ) : (
-            // A window share has no hall of mirrors to work around, so there is
-            // nothing to ask of the user — the picture is simply on its way.
-            <p className="text-sm text-white/60">共有した画面を読み込んでいます…</p>
-          )}
+      {/* One video element for the whole life of the share, because replacing it
+          drops the stream. It is the main view for a watched tab and a thumbnail
+          otherwise — where it is kept only because on browsers without
+          ImageCapture it is the one thing still decoding frames, and a video
+          that is not displayed is not guaranteed to (docs/log.md 2026-08-15). */}
+      <div className={showingLive ? "relative min-h-0 flex-1" : "relative min-h-0 flex-1 overflow-auto overscroll-contain"}>
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className={
+            showingLive
+              ? "h-full w-full object-contain"
+              : "pointer-events-none absolute bottom-2 left-2 z-10 w-12 rounded border border-white/15 opacity-30"
+          }
+        />
+
+        {!showingLive && currentCapture && (
+          <Snapshot
+            capture={currentCapture}
+            pointer={pointer}
+            stroke={stroke}
+            annotations={annotations}
+            onPointer={point}
+          />
+        )}
+
+        {!showingLive && !currentCapture && (
+          <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+            {buffered ? (
+              <>
+                {/* The only thing this mode ever teaches, and it is shown once:
+                    after the first return there is always a screen here. */}
+                <p className="text-lg font-medium">分からない画面に戻ってください</p>
+                <p className="max-w-md text-sm leading-relaxed text-white/60">
+                  このタブに戻ってくると、あなたが見ていた画面がここに映ります。
+                  そうしたら、分からないところを指して質問してください。
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-white/60">共有した画面を読み込んでいます…</p>
+            )}
+            {error && <Notice tone="error">{error}</Notice>}
+          </div>
+        )}
+      </div>
+
+      {showingLive ? (
+        // Nothing is ever asked about live video: whatever was pointed at has
+        // moved by the time an answer comes back. Freezing makes the question
+        // one about a still image (docs/two-device-mode.md §2).
+        <div className="shrink-0 space-y-2 bg-neutral-900/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
           {error && <Notice tone="error">{error}</Notice>}
+          <p className="text-xs text-white/50">
+            共有したタブがここに映っています。聞きたい状態になったら止めてください。
+          </p>
+          <button
+            onClick={freeze}
+            className="w-full rounded-xl bg-blue-600 px-4 py-4 text-base font-medium text-white"
+          >
+            この画面について聞く
+          </button>
         </div>
       ) : (
         <>
-          <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
-            <Snapshot
-              capture={currentCapture}
-              pointer={pointer}
-              stroke={stroke}
-              annotations={annotations}
-              onPointer={point}
-            />
-          </div>
 
           {buffered && screens.length > 1 && (
             <div className="shrink-0 space-y-1 px-3 pb-1">
@@ -469,22 +556,39 @@ export default function SoloPage() {
  * looking at the product: is a background tab still being fed frames, and are
  * two screens being told apart? Reached with `?debug` — a hypothesis about
  * either of these is worth less than one look at the numbers
- * (docs/requirements-solo.md §7).
+ * (docs/solo-mode.md §7).
  */
 function DebugPanel({
   screens,
   report,
   index,
+  buffered,
+  watched,
 }: {
   screens: RecentScreen[];
   report: RecentScreensReport | null;
   index: number;
+  buffered: boolean;
+  watched: boolean;
 }) {
   const gaps = report?.intervals ?? [];
+  const route = report === null ? "未取得" : report.viaTrack ? "track (ImageCapture)" : "video element";
+  if (!buffered) {
+    // Saying "0 candidates" here would read as a buffer that found nothing,
+    // when in fact these shares never needed one.
+    return (
+      <div className="shrink-0 border-y border-white/10 bg-black/60 px-3 py-1 font-mono text-[10px] leading-tight text-white/60">
+        {watched
+          ? "タブ共有・フォーカス保持あり（ライブ表示、バッファなし）"
+          : "ウィンドウ共有（戻るたびに撮り直し、バッファなし）"}{" "}
+        / 取得元 {route}
+      </div>
+    );
+  }
   return (
     <div className="shrink-0 space-y-0.5 border-y border-white/10 bg-black/60 px-3 py-1 font-mono text-[10px] leading-tight text-white/60">
       <div>
-        候補 {screens.length} / 選択 {index} / 取得元 {report?.viaTrack ? "track (ImageCapture)" : "video element"}
+        候補 {screens.length} / 選択 {index} / 取得元 {route}
       </div>
       <div>直近の取得間隔(ms): {gaps.length ? gaps.join(" ") : "—"}</div>
       <div>

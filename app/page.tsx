@@ -21,7 +21,7 @@ import { Join } from "@/app/join";
  * This device is the one being looked at, so it deliberately offers almost
  * nothing to do: start sharing, show the link, stop. Asking happens on the
  * other device, because a panel for asking questions about this screen would
- * sit on top of the very screen in question (docs/requirements.md §10).
+ * sit on top of the very screen in question (docs/two-device-mode.md §2).
  */
 export default function SharePage() {
   const [ready, setReady] = useState(false);
@@ -83,7 +83,9 @@ export default function SharePage() {
     setError(null);
     let captured: MediaStream;
     try {
-      captured = await startScreenShare();
+      // The controller is not needed here: the phone is the thing looking at
+      // this screen, so nothing is gained by keeping focus on this tab.
+      captured = (await startScreenShare()).stream;
     } catch (caught) {
       setError(caught instanceof ScreenShareError ? caught.message : messageForCaptureError("capture-failed"));
       return;
@@ -148,7 +150,7 @@ export default function SharePage() {
         <div className="space-y-8">
           {/* Solo mode first. Somebody who was sent this link is stuck now, on
               this machine, and pairing a second device is a detour they did not
-              ask for (docs/requirements-solo.md §0). */}
+              ask for (docs/capabilities.md §1). */}
           <div className="space-y-2">
             <Link
               href="/solo"

@@ -6,7 +6,7 @@ import { difference, type Capture, type Frame, type FrameSource } from "@/lib/sc
  * Share a whole monitor, then come back to this tab, and the live picture is of
  * this tab — the one screen nobody needs explained. Whatever they actually want
  * to ask about was on screen a moment *before* they returned, so the only way
- * to have it is to have kept it (docs/requirements-solo.md §3-1).
+ * to have it is to have kept it (docs/solo-mode.md §4).
  *
  * Frames are taken only while the user is away, and that is what makes the
  * buffer honest rather than clever: every frame in it is, by construction, a
@@ -30,7 +30,7 @@ const DEFAULT_MAX = 12;
  * Below this difference, two frames are the same screen at two moments.
  *
  * Measured rather than guessed, on synthetic screens built to look like real
- * web applications (docs/requirements-solo.md §7):
+ * web applications (docs/solo-mode.md §7):
  *
  *     0.000  the same screen, untouched
  *     0.024  a menu opened over it
@@ -66,7 +66,7 @@ export type RecentScreen = {
  * Pushed out with every change rather than offered for polling: the two things
  * worth knowing — whether a background tab is still being fed frames, and how
  * often — are only observable while nobody is looking, so they have to be
- * recorded as they happen (docs/requirements-solo.md §7).
+ * recorded as they happen (docs/solo-mode.md §7).
  */
 export type RecentScreensReport = {
   /** Gaps between the last few grabs, newest first. Background throttling is
@@ -97,14 +97,25 @@ export function recordRecentScreens(options: {
   const gaps: number[] = [];
 
   /**
-   * Away covers two different things that look the same from the shared
-   * screen's point of view: another tab (hidden), and another application on
-   * top of this one (visible but unfocused). Watching only `hidden` misses
-   * everyone who works in windows side by side, which on a desktop is most
-   * people.
+   * Only `hidden` counts, and the reason is worth keeping.
+   *
+   * This first also treated "visible but unfocused" as away, reasoning that
+   * another application on top of this one looks the same from the shared
+   * screen's point of view. On a whole-monitor share it does not: unfocused but
+   * still on screen means the frame is of this page. And Chrome's own "is
+   * sharing your screen" bar is a separate window that takes focus the moment
+   * sharing begins — so capturing started immediately, with the page in full
+   * view, and every frame swallowed the one before it. Four candidates deep in
+   * a hall of mirrors, before the user had gone anywhere.
+   *
+   * `hidden` alone gives up the side-by-side windows case: another application
+   * covering this one leaves the tab visible, so nothing is recorded. That is a
+   * missed screen rather than a poisoned buffer, and it is a real limit of
+   * capturing a whole monitor from inside it — not a threshold to tune
+   * (docs/solo-mode.md §4).
    */
   function away(): boolean {
-    return document.hidden || !document.hasFocus();
+    return document.hidden;
   }
 
   function absorb(frame: Frame, now: number): void {

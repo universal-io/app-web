@@ -36,7 +36,7 @@ export type SignalMessage =
  * The alphabet drops the pairs people transcribe wrongly (0/O, 1/I/L), leaving
  * about 39 bits. That is far short of unguessable, and deliberately so for now:
  * rooms are ephemeral and the privacy model is explicitly deferred until the
- * idea has proven useful (docs/requirements.md §10). It must be revisited
+ * idea has proven useful (docs/two-device-mode.md §2). It must be revisited
  * before this is put in front of anyone who is not the person sharing.
  */
 const CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";

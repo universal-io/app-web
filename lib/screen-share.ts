@@ -3,7 +3,7 @@
  *
  * The prototype that proved this route streamed frames on a timer and paid for
  * it: a backgrounded tab has its timers throttled to exactly 1 fps, which made
- * a 15 fps setting silently deliver one frame a second (docs/inception.md §2).
+ * a 15 fps setting silently deliver one frame a second (docs/log.md 2026-08-15).
  * Nothing here runs on a timer. The stream is held open and a frame is taken at
  * the moment a question is asked, so throttling has nothing to throttle.
  *
@@ -76,12 +76,13 @@ export function messageForCaptureError(kind: CaptureError): string {
 /**
  * Which of the picker's three kinds of thing the user chose.
  *
- * Unknown means unknown, and the two modes fail very differently on a wrong
- * guess: treating a monitor share as a window share puts the live mirror on
- * screen and freezes a picture of this very page, while treating a window share
- * as a monitor share merely buffers frames it did not strictly need. So an
- * absent value — Firefox and Safari do not always report one — is read as
- * "monitor", the assumption whose failure is survivable.
+ * This decides everything downstream, because only a tab can be watched from
+ * here without leaving (see `Share.keptFocus`). Unknown means unknown, and the
+ * modes fail very differently on a wrong guess: treating a monitor share as a
+ * tab puts a live hall of mirrors on screen, while treating a tab as a monitor
+ * merely buffers frames it did not need. So an absent value — Firefox and
+ * Safari do not always report one — is read as "monitor", the assumption whose
+ * failure is survivable.
  */
 export type DisplaySurface = "monitor" | "window" | "browser";
 
@@ -91,19 +92,60 @@ export function surfaceOf(track: MediaStreamTrack): DisplaySurface {
 }
 
 type ShareOptions = {
-  /** Which pane of the picker to open on. A hint; browsers may ignore it. */
+  /** Which pane of the picker to open on. Chrome 151 ignores this — asking for
+   * "monitor" still opened on Windows — so nothing may depend on it. */
   prefer?: DisplaySurface;
 };
 
-export async function startScreenShare(options: ShareOptions = {}): Promise<MediaStream> {
+/**
+ * The browser-side handle on a share, beyond the pixels.
+ *
+ * `setFocusBehavior` is why this exists. By default, sharing a tab sends the
+ * user to that tab, which defeats the entire point of a copilot: they wanted to
+ * ask about that page, not go and stare at it. Told not to change focus, the
+ * user stays here and the shared tab streams in — and a captured tab keeps
+ * being rendered while in the background, so what streams in is live rather
+ * than frozen. That single call is the difference between "go there and come
+ * back" and "watch it from here".
+ *
+ * The rest of CaptureController is Captured Surface Control (`forwardWheel`,
+ * the zoom methods): the one sanctioned way to send input back to a shared
+ * surface. Verified present in Chrome 151 and not used yet.
+ */
+type FocusBehavior = "focus-captured-surface" | "no-focus-change";
+
+export type Controller = {
+  setFocusBehavior(behavior: FocusBehavior): void;
+  forwardWheel(element: Element | null): Promise<void>;
+};
+
+export type Share = {
+  stream: MediaStream;
+  surface: DisplaySurface;
+  controller: Controller | null;
+  /** Whether focus was successfully kept here. False means the user was taken
+   * to the shared surface and will have to come back, which changes what the
+   * page can promise them. */
+  keptFocus: boolean;
+};
+
+export async function startScreenShare(options: ShareOptions = {}): Promise<Share> {
   const unavailable = screenShareUnavailableReason();
   if (unavailable) {
     throw new ScreenShareError(unavailable, messageForCaptureError(unavailable));
   }
+
+  const Constructor = (window as unknown as {
+    CaptureController?: new () => Controller;
+  }).CaptureController;
+  const controller = Constructor ? new Constructor() : null;
+
+  let stream: MediaStream;
   try {
-    return await navigator.mediaDevices.getDisplayMedia({
+    stream = await navigator.mediaDevices.getDisplayMedia({
       video: options.prefer ? { displaySurface: options.prefer } : true,
       audio: false,
+      controller: controller ?? undefined,
       // This tab is never worth sharing — to the phone it is the page holding
       // the QR code, and to solo mode it is the hall of mirrors. Removing it
       // from the picker is cheaper than explaining afterwards why the choice
@@ -118,6 +160,32 @@ export async function startScreenShare(options: ShareOptions = {}): Promise<Medi
     // and neither is an error worth alarming anyone about.
     throw new ScreenShareError("denied", messageForCaptureError("denied"));
   }
+
+  const [track] = stream.getVideoTracks();
+  if (!track) {
+    stream.getTracks().forEach((each) => each.stop());
+    throw new ScreenShareError("no-video-track", messageForCaptureError("no-video-track"));
+  }
+
+  const surface = surfaceOf(track);
+
+  // Everything from here to the end of this function must stay synchronous.
+  // The focus decision is made when this task finishes, and an `await` in
+  // between hands the browser the chance to make it first — after which
+  // setFocusBehavior throws and the user is already looking at the other tab.
+  let keptFocus = false;
+  if (controller && surface !== "monitor") {
+    try {
+      controller.setFocusBehavior("no-focus-change");
+      keptFocus = true;
+    } catch {
+      // Older Chrome, or a surface it will not hold focus for. The page has to
+      // fall back to asking the user to come back, so this is recorded rather
+      // than swallowed.
+    }
+  }
+
+  return { stream, surface, controller, keptFocus };
 }
 
 export type Capture = {
@@ -141,7 +209,7 @@ export type Frame = {
  *
  * The video element is a real, displayed element rather than a detached one:
  * a `display: none` video is not guaranteed to decode, which is how the
- * prototype ended up capturing blank frames (docs/inception.md §8).
+ * prototype ended up capturing blank frames (docs/log.md 2026-08-15).
  */
 export async function captureFrame(video: HTMLVideoElement): Promise<Capture> {
   return frameFromVideo(video).capture;
@@ -226,7 +294,7 @@ export function difference(a: Uint8ClampedArray, b: Uint8ClampedArray): number {
  *
  * It is Chromium-only. Elsewhere the element is used and `viaTrack` says so,
  * which is what the debug panel reports rather than leaving a stale buffer to
- * be discovered by a wrong answer (docs/requirements-solo.md §7).
+ * be discovered by a wrong answer (docs/solo-mode.md §7).
  */
 export type FrameSource = {
   grab(): Promise<Frame>;
