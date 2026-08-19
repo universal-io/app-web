@@ -204,16 +204,27 @@ console.log("\n[タブを共有・フォーカス保持]");
   );
   check((await strip(page)) === 0, "候補バッファは動かない");
 
-  // Nothing is asked about live video; freezing is what makes a question
-  // answerable at all.
-  await page.getByRole("button", { name: "この画面について聞く" }).click();
+  // Freezing is what makes a question answerable at all, but it is not a step
+  // the user performs: touching the live picture does it, and the touch itself
+  // becomes the mark.
+  const live = await page.locator("video").first().boundingBox();
+  await page.mouse.click(live.x + live.width / 2, live.y + live.height / 2);
   await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
-  check(true, "「この画面について聞く」で静止する");
+  check(true, "ライブをクリックすると静止する（ボタンは無い）");
+  check(
+    (await page.locator("div.rounded-full.border-cyan-400").count()) === 1,
+    "その1クリックがそのまま印になる",
+  );
 
-  const box = await page.locator('img[alt="共有された画面"]').boundingBox();
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await page.waitForTimeout(250);
-  check((await page.locator("div.rounded-full.border-cyan-400").count()) === 1, "静止画にタップで印がつく");
+  // The mark must land where the click did, not offset by the letterbox that
+  // object-contain puts above and below the picture.
+  const ring = await page.locator("div.rounded-full.border-cyan-400").boundingBox();
+  const shot = await page.locator('img[alt="共有された画面"]').boundingBox();
+  const offBy = Math.hypot(
+    ring.x + ring.width / 2 - (shot.x + shot.width / 2),
+    ring.y + ring.height / 2 - (shot.y + shot.height / 2),
+  );
+  check(offBy < 12, "印の位置がクリック位置と一致する", `ズレ ${offBy.toFixed(1)}px`);
 
   await page.getByRole("button", { name: "ライブに戻る" }).click();
   await page.waitForTimeout(250);

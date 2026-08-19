@@ -41,6 +41,26 @@ export async function ensureSession(): Promise<Session> {
   return data.session;
 }
 
+/**
+ * A token that is still valid at the moment of the request.
+ *
+ * The session obtained when the page loaded is not good enough. Access tokens
+ * expire in about an hour and this product is built to be left open all day —
+ * a tab somebody opened when they got stuck at 10am and asked a question at
+ * noon got "ログインが必要です" for a product that has no login. The client
+ * refreshes in the background, so asking it again costs nothing and returns the
+ * current token rather than the one from page load.
+ */
+export async function accessToken(): Promise<string> {
+  const supabase = supabaseBrowserClient();
+  const { data } = await supabase.auth.getSession();
+  if (data.session) return data.session.access_token;
+  // Storage cleared, or signed out in another tab. A guest session is free to
+  // create, so recreate it rather than telling the user to do something about
+  // an account they never made.
+  return (await ensureSession()).access_token;
+}
+
 export class SessionError extends Error {
   constructor(message: string) {
     super(message);

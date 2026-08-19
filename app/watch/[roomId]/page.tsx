@@ -7,7 +7,7 @@ import { captureFrame, type Capture } from "@/lib/screen-share";
 import { withPointerMark } from "@/lib/marker";
 import { createViewerPeer } from "@/lib/peer";
 import { joinRoom, type RoomConnection } from "@/lib/room";
-import { ensureSession, SessionError } from "@/lib/session";
+import { accessToken, ensureSession, SessionError } from "@/lib/session";
 import { Notice } from "@/app/ui";
 import { Snapshot, type Point } from "@/app/snapshot";
 import { AnswerPanel, QuestionInput } from "@/app/ask";
@@ -145,7 +145,7 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
     try {
       const imageBase64 = await withPointerMark(capture, pointer, stroke);
       const response = await askVision({
-        accessToken: session.access_token,
+        accessToken: await accessToken(),
         imageBase64,
         mediaType: capture.mediaType,
         question: asked || undefined,

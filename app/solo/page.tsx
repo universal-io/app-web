@@ -22,7 +22,7 @@ import {
   type RecentScreensReport,
 } from "@/lib/recent-screens";
 import { withPointerMark } from "@/lib/marker";
-import { ensureSession, SessionError } from "@/lib/session";
+import { accessToken, ensureSession, SessionError } from "@/lib/session";
 import { Notice, Shell } from "@/app/ui";
 import { Snapshot, type Point } from "@/app/snapshot";
 import { AnswerPanel, QuestionInput } from "@/app/ask";
@@ -298,19 +298,49 @@ export default function SoloPage() {
   /**
    * Stopping the live tab on the moment worth asking about.
    *
+   * There is no button for this. Asking about live video cannot work — whatever
+   * was pointed at has moved by the time an answer comes back — but that is our
+   * problem, not something to make the user perform. So the still is taken at
+   * the moment they do the thing they came to do: touch the screen, or type.
+   * The gesture that froze it is carried onto the still, so a tap costs one
+   * gesture rather than two.
+   *
    * A new still is a new subject: the exchange so far was about a different
    * state of that page, and carrying it forward is how a model ends up
    * confidently describing something that has since scrolled away.
    */
-  const freeze = useCallback(async () => {
+  const freeze = useCallback(async (at: Point | null): Promise<Capture | null> => {
     setError(null);
     const capture = await grabNow();
-    if (!capture) return;
+    if (!capture) return null;
     setFrozen(capture);
-    setMark(null);
+    setMark(at ? { capture, pointer: { kind: "point", point: at }, stroke: null } : null);
     setAnswer(null);
     setTurns([]);
+    return capture;
   }, [grabNow]);
+
+  /**
+   * Where on the shared surface a click landed.
+   *
+   * `object-contain` letterboxes the video, so the element's box is not the
+   * picture's box. Reading the position off the element directly would put
+   * every mark off by the height of the bars — the exact class of quiet
+   * coordinate error this project has paid for before.
+   */
+  const pointOnLive = useCallback((event: React.PointerEvent<HTMLVideoElement>): Point | null => {
+    const video = event.currentTarget;
+    if (!video.videoWidth || !video.videoHeight) return null;
+    const rect = video.getBoundingClientRect();
+    const scale = Math.min(rect.width / video.videoWidth, rect.height / video.videoHeight);
+    const width = video.videoWidth * scale;
+    const height = video.videoHeight * scale;
+    const x = (event.clientX - (rect.left + (rect.width - width) / 2)) / width;
+    const y = (event.clientY - (rect.top + (rect.height - height) / 2)) / height;
+    // Outside the picture is the letterbox, which is not part of the screen
+    // anybody means to point at.
+    return x < 0 || x > 1 || y < 0 || y > 1 ? null : { x, y };
+  }, []);
 
   const backToLive = useCallback(() => {
     setFrozen(null);
@@ -327,8 +357,9 @@ export default function SoloPage() {
     setQuestion("");
   }, []);
 
-  const ask = useCallback(async () => {
-    if (!currentCapture) return;
+  const ask = useCallback(async (about?: Capture) => {
+    const subject = about ?? currentCapture;
+    if (!subject) return;
     if (!session) {
       setError("セッションがありません。ページを再読み込みしてください。");
       return;
@@ -339,16 +370,16 @@ export default function SoloPage() {
     setBusy(true);
     setError(null);
     try {
-      const imageBase64 = await withPointerMark(currentCapture, pointer, stroke);
+      const imageBase64 = await withPointerMark(subject, pointer, stroke);
       const response = await askVision({
-        accessToken: session.access_token,
+        accessToken: await accessToken(),
         imageBase64,
-        mediaType: currentCapture.mediaType,
+        mediaType: subject.mediaType,
         question: asked || undefined,
         pointer: pointer ?? undefined,
         turns,
       });
-      setAnswer({ value: response, capture: currentCapture });
+      setAnswer({ value: response, capture: subject });
       // The user's side is always recorded, even when they only pointed: a
       // history of assistant messages with nothing prompting them reads as the
       // model talking to itself, and it answers accordingly.
@@ -364,6 +395,17 @@ export default function SoloPage() {
       setBusy(false);
     }
   }, [currentCapture, session, question, pointer, stroke, turns]);
+
+  /**
+   * A question typed while the picture is live is a question about the picture
+   * as it is now, so the still is taken and asked about in one movement — the
+   * capture is handed straight to ask() rather than waiting for state to land.
+   */
+  const askAboutLive = useCallback(async () => {
+    if (!question.trim()) return;
+    const capture = await freeze(null);
+    if (capture) await ask(capture);
+  }, [question, freeze, ask]);
 
   const annotations = useMemo(
     () => (answer && answer.capture === currentCapture ? answer.value.result.annotations : []),
@@ -462,9 +504,10 @@ export default function SoloPage() {
           autoPlay
           muted
           playsInline
+          onPointerDown={showingLive ? (event) => void freeze(pointOnLive(event)) : undefined}
           className={
             showingLive
-              ? "h-full w-full object-contain"
+              ? "h-full w-full cursor-crosshair object-contain"
               : "pointer-events-none absolute bottom-2 left-2 z-10 w-12 rounded border border-white/15 opacity-30"
           }
         />
@@ -500,20 +543,12 @@ export default function SoloPage() {
       </div>
 
       {showingLive ? (
-        // Nothing is ever asked about live video: whatever was pointed at has
-        // moved by the time an answer comes back. Freezing makes the question
-        // one about a still image (docs/two-device-mode.md §2).
         <div className="shrink-0 space-y-2 bg-neutral-900/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
           {error && <Notice tone="error">{error}</Notice>}
           <p className="text-xs text-white/50">
-            共有したタブがここに映っています。聞きたい状態になったら止めてください。
+            共有したタブがここに映っています。分からないところをクリックするか、そのまま質問してください。
           </p>
-          <button
-            onClick={freeze}
-            className="w-full rounded-xl bg-blue-600 px-4 py-4 text-base font-medium text-white"
-          >
-            この画面について聞く
-          </button>
+          <QuestionInput value={question} onChange={setQuestion} onSubmit={askAboutLive} busy={busy} />
         </div>
       ) : (
         <>
