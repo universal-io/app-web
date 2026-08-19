@@ -66,7 +66,13 @@ export function QuestionInput({
         className="min-w-0 flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-base text-white placeholder:text-white/40"
       />
       <button
-        onClick={onSubmit}
+        // Called with no arguments on purpose. Handing `onSubmit` straight to
+        // onClick passes a click event as its first parameter, and a caller
+        // whose handler takes an optional argument silently receives it —
+        // which is how the ask path came to be given a MouseEvent in place of
+        // the picture to ask about. TypeScript cannot see it: `() => void` is
+        // assignable to an event handler.
+        onClick={() => onSubmit()}
         disabled={busy}
         className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
       >

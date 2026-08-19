@@ -86,9 +86,40 @@ const stub = ({ surface, holdsFocus }) => {
 
 const browser = await chromium.launch({ channel: "chrome" });
 
+// The Gateway is stood in for, so the whole ask path can be exercised — mark
+// burnt into the image, request sent, answer and boxes drawn — without spending
+// a real call or needing the network.
+const sent = [];
+async function stubGateway(page) {
+  await page.route("**/ai/vision", async (route) => {
+    const body = route.request().postDataJSON();
+    sent.push(body);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "access-control-allow-origin": "*" },
+      body: JSON.stringify({
+        request_id: "test",
+        capture_id: "test",
+        result: {
+          mode: "answer",
+          message: "これはテストの回答です。",
+          observations: [],
+          uncertainties: [],
+          target_candidate_id: null,
+          annotations: [{ id: "a", kind: "highlight", box: { x: 0.3, y: 0.3, w: 0.2, h: 0.1 }, label: "ここ" }],
+          skill: null,
+        },
+        meta: { latency_ms: 1200 },
+      }),
+    });
+  });
+}
+
 async function open(surface, holdsFocus = false) {
   const page = await browser.newPage();
   page.on("pageerror", (error) => console.log("PAGE ERROR:", error.message));
+  await stubGateway(page);
   await page.addInitScript(stub, { surface, holdsFocus });
   await page.goto(`${BASE}/solo?debug`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "画面を選ぶ" }).click();
@@ -253,6 +284,26 @@ console.log("\n[タブを共有・フォーカス保持]");
   );
   check(gap < 2, "静止しても画面の位置と大きさが変わらない", `ズレ ${gap.toFixed(1)}px`);
   check((await spotlight.count()) === 0, "ピンが打たれたらカバーは消える");
+
+  // Pressing the button must ask about the picture. It once handed the click
+  // event to the ask path in place of the capture, and every question came back
+  // as "エラーが発生しました".
+  sent.length = 0;
+  await page.getByPlaceholder("質問（指すだけでも聞けます）").fill("これは何ですか");
+  await page.getByRole("button", { name: "聞く" }).click();
+  await page.waitForSelector("text=これはテストの回答です。", { timeout: 10000 });
+  check(true, "「聞く」ボタンで質問が通り、回答が出る");
+  check(
+    sent.length === 1 && typeof sent[0]?.input?.image_base64 === "string" && sent[0].input.image_base64.length > 1000,
+    "送っているのは画面の画像そのもの",
+    `${sent[0]?.input?.image_base64?.length ?? 0} bytes`,
+  );
+  check(
+    (await page.locator("div.border-amber-400").count()) === 1,
+    "返ってきた枠が画面に描かれる",
+  );
+  await page.getByRole("button", { name: "いまの画面を取り直す" }).click();
+  await page.waitForTimeout(200);
 
   // The panel floats over the picture and must be movable, because wherever it
   // sits by default is somewhere the user may need to look.
