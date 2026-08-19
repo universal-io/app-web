@@ -31,6 +31,16 @@ import { AnswerPanel, QuestionInput } from "@/app/ask";
 type Turn = { role: "user" | "assistant"; text: string };
 
 /**
+ * The hole the spotlight cuts in the wash.
+ *
+ * A held-clear core to just past half the radius, then a short ramp: an even
+ * fade from the centre reads as haze rather than as a light aimed at something.
+ */
+const SPOT_MASK =
+  "radial-gradient(circle 260px at var(--x, 50%) var(--y, 50%)," +
+  " transparent 0%, transparent 56%, #000 82%, #000 100%)";
+
+/**
  * One machine, no second device.
  *
  * The premise of this mode is that somebody stuck on something should be able
@@ -761,20 +771,27 @@ function Solo({ session }: { session: Session }) {
               // spot, over a blue wash with a soft hole punched in it. A hole
               // alone was too quiet to notice — the eye needs something to be
               // brighter, not merely less dimmed.
-              background: focused
-                ? [
-                    // Kept faint. A stronger glow fogged the one part of the
-                    // picture the user is trying to look at, which is the
-                    // opposite of what a spotlight is for; the definition comes
-                    // from the wash outside it, not from brightening the target.
-                    "radial-gradient(circle 200px at var(--x, 50%) var(--y, 50%)," +
-                      " rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.07) 45%, rgba(255,255,255,0) 80%)",
-                    "radial-gradient(circle 260px at var(--x, 50%) var(--y, 50%)," +
-                      " rgba(37,99,235,0) 0%, rgba(37,99,235,0) 58%," +
-                      " rgba(37,99,235,0.24) 82%, rgba(37,99,235,0.24) 100%)",
-                  ].join(", ")
-                : "rgba(37,99,235,0.18)",
-              transition: "background 200ms ease",
+              // Dimming, not tinting.
+              //
+              // This began as a translucent blue with a hole in it, and a white
+              // glow in the hole to read as light. Over a dark page it inverted:
+              // blue over near-black *lightens* it, so the surroundings barely
+              // changed while the glow fogged the one place the user was trying
+              // to look. Our own colour scheme was never the variable — the
+              // brightness of somebody else's screen was, and that is not
+              // something to have an opinion about.
+              //
+              // A backdrop filter is relative to whatever is underneath, so it
+              // darkens a white page and a black one alike. The mask cuts the
+              // whole overlay away inside the spot, which leaves the target
+              // untouched rather than lit — nothing is added to the thing being
+              // examined.
+              backdropFilter: "brightness(0.72) saturate(0.85)",
+              WebkitBackdropFilter: "brightness(0.72) saturate(0.85)",
+              background: "rgba(37,99,235,0.14)",
+              maskImage: focused ? SPOT_MASK : undefined,
+              WebkitMaskImage: focused ? SPOT_MASK : undefined,
+              transition: "mask-image 120ms linear",
             }}
           />
         )}

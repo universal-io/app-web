@@ -316,7 +316,11 @@ console.log("\n[タブを共有・フォーカス保持]");
   // says otherwise, so a wash with a spotlight under the cursor asks for the
   // first move — and gets out of the way once it has been made.
   const spotlight = page.locator("div[data-guide]");
-  check((await spotlight.count()) === 1, "指す前は青いカバーとスポットライトが出ている");
+  check((await spotlight.count()) === 1, "指す前はカバーとスポットライトが出ている");
+  // Dimming has to be relative to whatever is underneath, or a dark page comes
+  // out lighter instead of darker.
+  const dims = await spotlight.evaluate((el) => el.style.backdropFilter || "");
+  check(dims.includes("brightness"), "カバーは中身を暗くする（色を乗せるだけではない）", dims);
 
   const live = await page.locator("video").first().boundingBox();
   await page.mouse.move(live.x + live.width / 3, live.y + live.height / 3);
@@ -340,7 +344,7 @@ console.log("\n[タブを共有・フォーカス保持]");
     window.dispatchEvent(new Event("blur"));
   });
   await page.waitForTimeout(150);
-  const unfocused = await spotlight.evaluate((el) => el.style.background || getComputedStyle(el).background);
+  const unfocused = await spotlight.evaluate((el) => el.style.maskImage || el.style.webkitMaskImage || "");
   check(!unfocused.includes("radial-gradient"), "フォーカスが無い間はスポットライトを出さない");
 
   await page.evaluate(() => {
@@ -348,7 +352,7 @@ console.log("\n[タブを共有・フォーカス保持]");
     window.dispatchEvent(new Event("focus"));
   });
   await page.waitForTimeout(150);
-  const refocused = await spotlight.evaluate((el) => el.style.background || getComputedStyle(el).background);
+  const refocused = await spotlight.evaluate((el) => el.style.maskImage || el.style.webkitMaskImage || "");
   check(refocused.includes("radial-gradient"), "フォーカスが戻ればスポットライトも戻る");
 
   sent.length = 0;
