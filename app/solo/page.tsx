@@ -331,6 +331,58 @@ export default function SoloPage() {
   }, [buffered, screens.length, index, selectCandidate]);
 
   /**
+   * One place where a question is actually sent.
+   *
+   * Everything is passed in rather than read from state, because the two ways a
+   * question starts differ in what they know. A gesture knows the picture and
+   * the mark before React has been told about either, and it is a new subject
+   * so it carries no history. A typed question knows neither, and continues
+   * whatever was being discussed.
+   */
+  const send = useCallback(async (input: {
+    capture: Capture;
+    pointer: Pointer | null;
+    stroke: Point[] | null;
+    question: string;
+    history: Turn[];
+  }) => {
+    if (!session) {
+      setError("セッションがありません。ページを再読み込みしてください。");
+      return;
+    }
+    const asked = input.question.trim();
+    if (!asked && !input.pointer) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const imageBase64 = await withPointerMark(input.capture, input.pointer, input.stroke);
+      const response = await askVision({
+        accessToken: await accessToken(),
+        imageBase64,
+        mediaType: input.capture.mediaType,
+        question: asked || undefined,
+        pointer: input.pointer ?? undefined,
+        turns: input.history,
+      });
+      setAnswer({ value: response, capture: input.capture });
+      // The user's side is always recorded, even when they only pointed: a
+      // history of assistant messages with nothing prompting them reads as the
+      // model talking to itself, and it answers accordingly.
+      setTurns([
+        ...input.history,
+        { role: "user" as const, text: asked || "（画面のこの場所を指した）" },
+        { role: "assistant" as const, text: response.result.message },
+      ]);
+      setQuestion("");
+    } catch (caught) {
+      setError(caught instanceof GatewayError ? caught.message : "エラーが発生しました。");
+    } finally {
+      setBusy(false);
+    }
+  }, [session]);
+
+  /**
    * Pointing somewhere new starts a new subject, so the previous exchange is
    * dropped. Carrying it forward made every tap return the first answer again:
    * with no typed question there was nothing in the turn to contradict the
@@ -342,7 +394,8 @@ export default function SoloPage() {
     setMark({ capture: currentCapture, pointer: next, stroke: drawn });
     setAnswer(null);
     setTurns([]);
-  }, [currentCapture]);
+    void send({ capture: currentCapture, pointer: next, stroke: drawn, question: "", history: [] });
+  }, [currentCapture, send]);
 
   /**
    * Stopping the live tab on the moment worth asking about.
@@ -478,7 +531,10 @@ export default function SoloPage() {
     // Pointing somewhere new is a new subject, on live video as on a still.
     setAnswer(null);
     setTurns([]);
-  }, [liveStroke, setLiveStroke]);
+    // And pointing at something is already the question. Waiting for a button
+    // to be pressed afterwards asks the user to say twice what they said once.
+    void send({ capture, pointer: mark.pointer, stroke: mark.stroke, question: "", history: [] });
+  }, [liveStroke, setLiveStroke, send]);
 
   /**
    * Done with this subject.
@@ -510,44 +566,11 @@ export default function SoloPage() {
     }
   }, [watched, grabNow]);
 
-  const ask = useCallback(async (about?: Capture) => {
-    const subject = about ?? currentCapture;
-    if (!subject) return;
-    if (!session) {
-      setError("セッションがありません。ページを再読み込みしてください。");
-      return;
-    }
-    const asked = question.trim();
-    if (!asked && !pointer && turns.length > 0) return;
-
-    setBusy(true);
-    setError(null);
-    try {
-      const imageBase64 = await withPointerMark(subject, pointer, stroke);
-      const response = await askVision({
-        accessToken: await accessToken(),
-        imageBase64,
-        mediaType: subject.mediaType,
-        question: asked || undefined,
-        pointer: pointer ?? undefined,
-        turns,
-      });
-      setAnswer({ value: response, capture: subject });
-      // The user's side is always recorded, even when they only pointed: a
-      // history of assistant messages with nothing prompting them reads as the
-      // model talking to itself, and it answers accordingly.
-      setTurns((previous) => [
-        ...previous,
-        { role: "user" as const, text: asked || "（画面のこの場所を指した）" },
-        { role: "assistant" as const, text: response.result.message },
-      ]);
-      setQuestion("");
-    } catch (caught) {
-      setError(caught instanceof GatewayError ? caught.message : "エラーが発生しました。");
-    } finally {
-      setBusy(false);
-    }
-  }, [currentCapture, session, question, pointer, stroke, turns]);
+  /** Asking about the picture already on screen, from the question box. */
+  const ask = useCallback(() => {
+    if (!currentCapture) return;
+    void send({ capture: currentCapture, pointer, stroke, question, history: turns });
+  }, [currentCapture, pointer, stroke, question, turns, send]);
 
   /**
    * A question typed while the picture is live is a question about the picture
@@ -557,8 +580,8 @@ export default function SoloPage() {
   const askAboutLive = useCallback(async () => {
     if (!question.trim()) return;
     const capture = await freeze();
-    if (capture) await ask(capture);
-  }, [question, freeze, ask]);
+    if (capture) await send({ capture, pointer: null, stroke: null, question, history: turns });
+  }, [question, freeze, send, turns]);
 
   const annotations = useMemo(
     () => (answer && answer.capture === currentCapture ? answer.value.result.annotations : []),

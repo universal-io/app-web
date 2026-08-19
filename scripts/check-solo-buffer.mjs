@@ -250,6 +250,7 @@ console.log("\n[タブを共有・フォーカス保持]");
   const moved = await spotlight.evaluate((el) => el.style.getPropertyValue("--x"));
   check(moved !== "", "スポットライトがマウスに追従する", `--x=${moved || "未設定"}`);
 
+  sent.length = 0;
   await page.mouse.click(live.x + live.width / 2, live.y + live.height / 2);
   await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
   check(true, "ライブをクリックすると静止する（ボタンは無い）");
@@ -257,6 +258,11 @@ console.log("\n[タブを共有・フォーカス保持]");
     (await page.locator("div.rounded-full.border-cyan-400").count()) === 1,
     "その1クリックがそのまま印になる",
   );
+
+  // Pointing at something is already the question.
+  await page.waitForSelector("text=これはテストの回答です。", { timeout: 10000 });
+  check(true, "指しただけで解説が走る（ボタンを押さなくてよい）");
+  check(sent.length === 1 && sent[0]?.input?.pointer?.kind === "point", "指した1点が送られている");
 
   // The mark must land where the click did, not offset by the letterbox that
   // object-contain puts above and below the picture.
@@ -288,6 +294,8 @@ console.log("\n[タブを共有・フォーカス保持]");
   // Pressing the button must ask about the picture. It once handed the click
   // event to the ask path in place of the capture, and every question came back
   // as "エラーが発生しました".
+  await page.getByRole("button", { name: "いまの画面を取り直す" }).click();
+  await page.waitForTimeout(300);
   sent.length = 0;
   await page.getByPlaceholder("質問（指すだけでも聞けます）").fill("これは何ですか");
   await page.getByRole("button", { name: "聞く" }).click();
@@ -351,6 +359,11 @@ console.log("\n[タブを共有・フォーカス保持]");
     (await page.locator("svg polyline").count()) === 1 &&
       (await page.locator("div.rounded-full.border-cyan-400").count()) === 0,
     "ライブ上でなぞると丸囲みになる（点ではない）",
+  );
+  await page.waitForSelector("text=これはテストの回答です。", { timeout: 10000 });
+  check(
+    sent.some((body) => body?.input?.pointer?.kind === "region"),
+    "囲んだ範囲でも解説が走る",
   );
 
   // Going to the shared tab and back must show how it looks now.
