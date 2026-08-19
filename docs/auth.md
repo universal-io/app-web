@@ -78,14 +78,33 @@ Gatewayも最初のリクエストで遅延プロビジョニングするが、*
 **app-web のURLは、まだどちらにも登録されていない。** 登録するまでGoogleサインインは
 リダイレクトで失敗する。
 
-| 場所 | 追加するもの |
-|---|---|
-| Supabase → Authentication → URL Configuration → Redirect URLs | `http://localhost:7380/auth/callback` と本番URLの `/auth/callback` |
-| Google Cloud → OAuth クライアント → 承認済みのJavaScript生成元 | `http://localhost:7380` と本番オリジン |
+### Supabase → Authentication → URL Configuration → Redirect URLs
 
-現状の登録内容（`bombsquad.me`、`localhost:3000`、`universal-io://auth/callback`）は
-api-gateway/docs/supabase-setup.md にある。**app-web の開発ポートは 7380 であり、
-3000 ではない。**
+| 値 | 用途 |
+|---|---|
+| `http://localhost:7380/auth/callback` | app-web のローカル開発 |
+| `https://universal-io-app-web-kaya-matsumotos-projects.vercel.app/auth/callback` | app-web の現在の本番 |
+| `https://app.universal-io.com/auth/callback` | 独自ドメインへ移したとき |
+| `universal-io://auth/callback` | Mac版（既存） |
+
+### Google Cloud → OAuth クライアント
+
+**承認済みのリダイレクトURI は Supabase のコールバック1つだけ**でよい。
+各アプリのURLではない。
+
+```
+https://skcsbcyivjcvevxntvqa.supabase.co/auth/v1/callback
+```
+
+**承認済みのJavaScript生成元**には、サインインを開始するページのオリジンを並べる:
+`http://localhost:7380`、app-web の本番オリジン、`https://universal-io.com`、
+`http://localhost:3000`（api-gateway 自身の `/auth` ページ）。
+
+> **app-web の開発ポートは 7380 であり、3000 ではない。**
+> `api-gateway/docs/supabase-setup.md` の "Current web values" 節は
+> `bombsquad.me` を本番として挙げているが、**それは古い**。本番は
+> `universal-io.com` 系で、移行は2026-07-03に完了している（同ファイル冒頭に
+> そう書かれており、同じファイルの中で矛盾している）。
 
 ## 7. 未確認
 
