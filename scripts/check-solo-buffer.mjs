@@ -250,6 +250,15 @@ console.log("\n[タブを共有・フォーカス保持]");
   const moved = await spotlight.evaluate((el) => el.style.getPropertyValue("--x"));
   check(moved !== "", "スポットライトがマウスに追従する", `--x=${moved || "未設定"}`);
 
+  // Movement is listened for on the window, not on the picture, so the cursor
+  // does not have to be over the picture for the light to keep up with it.
+  await page.mouse.move(6, 300);
+  await page.waitForTimeout(120);
+  const offPicture = await spotlight.evaluate((el) => el.style.getPropertyValue("--x"));
+  check(offPicture !== moved, "絵の外に出ても追従を続ける", `--x=${offPicture}`);
+  await page.mouse.move(live.x + live.width / 3, live.y + live.height / 3);
+  await page.waitForTimeout(120);
+
   sent.length = 0;
   await page.mouse.click(live.x + live.width / 2, live.y + live.height / 2);
   await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });

@@ -150,6 +150,8 @@ export default function SoloPage() {
   })();
   const belongsToCurrent = mark !== null && mark.capture === currentCapture;
   const pointer = belongsToCurrent ? mark.pointer : null;
+  /** The wash and spotlight are up only until something has been pointed at. */
+  const guiding = pointer === null;
   const stroke = belongsToCurrent ? mark.stroke : null;
 
   useEffect(() => {
@@ -482,19 +484,31 @@ export default function SoloPage() {
   }, [clampPanel]);
 
   /**
-   * Moves the spotlight without re-rendering.
+   * Moves the spotlight.
    *
-   * A pointermove handler that sets React state would re-render the page on
-   * every mouse movement, over a video, for a purely decorative effect. The
-   * two custom properties are written straight to the node instead.
+   * Listened for on the window rather than on the picture, so it keeps up with
+   * the cursor wherever it goes — across the margin, over the floating panel,
+   * and back — instead of only while it happens to be over the one element
+   * that carries the gesture handlers. A window that is visible but not focused
+   * still receives hover movement, so this is also the form most likely to
+   * follow the cursor when the user is working in another window.
+   *
+   * Written straight to the node as two custom properties. Setting React state
+   * on every mouse movement would re-render the page, over live video, for
+   * something purely decorative.
    */
-  const trackSpotlight = useCallback((event: React.PointerEvent) => {
-    const element = spotlightRef.current;
-    if (!element) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    element.style.setProperty("--x", `${event.clientX - rect.left}px`);
-    element.style.setProperty("--y", `${event.clientY - rect.top}px`);
-  }, []);
+  useEffect(() => {
+    if (!guiding) return;
+    function onMove(event: PointerEvent) {
+      const element = spotlightRef.current;
+      if (!element) return;
+      const rect = element.getBoundingClientRect();
+      element.style.setProperty("--x", `${event.clientX - rect.left}px`);
+      element.style.setProperty("--y", `${event.clientY - rect.top}px`);
+    }
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => window.removeEventListener("pointermove", onMove);
+  }, [guiding]);
 
   const pointOnLive = useCallback((event: React.PointerEvent): Point => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -687,10 +701,7 @@ export default function SoloPage() {
           className="relative select-none"
           style={{ ...fitted, touchAction: "pinch-zoom" }}
         onPointerDown={showingLive ? onLiveDown : undefined}
-        onPointerMove={(event) => {
-          trackSpotlight(event);
-          if (showingLive) onLiveMove(event);
-        }}
+        onPointerMove={showingLive ? onLiveMove : undefined}
         onPointerUp={showingLive ? () => void onLiveUp() : undefined}
         onPointerCancel={showingLive ? () => setLiveStroke(null) : undefined}
       >
@@ -730,7 +741,7 @@ export default function SoloPage() {
             screen, it is a thing to point at", and the spotlight under the
             cursor says what to do about it. Both go the moment a pin lands,
             because by then the picture has explained itself. */}
-        {!pointer && (
+        {guiding && (
           <div
             ref={spotlightRef}
             aria-hidden
