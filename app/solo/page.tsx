@@ -437,15 +437,26 @@ export default function SoloPage() {
    * as it is, they never learn the word. They are looking at their screen, and
    * it holds still while they ask about it.
    */
-  const newTopic = useCallback(() => {
-    // Only a watched tab has a moving picture to return to. Clearing the still
-    // in the other modes would leave an empty screen until the next grab.
-    if (watched) setFrozen(null);
+  /**
+   * Start again from the screen as it is now.
+   *
+   * Mostly unnecessary — returning to this tab already refreshes — but without
+   * it a mistaken tap leaves somebody stuck on a still with no way back, and
+   * "close the tab and start over" is not an answer.
+   */
+  const refresh = useCallback(async () => {
     setMark(null);
     setAnswer(null);
     setTurns([]);
     setQuestion("");
-  }, [watched]);
+    // A watched tab has a moving picture to fall back to; the others have to be
+    // taken again, and clearing the still first would blank the screen.
+    if (watched) setFrozen(null);
+    else {
+      const capture = await grabNow();
+      if (capture) setFrozen(capture);
+    }
+  }, [watched, grabNow]);
 
   const ask = useCallback(async (about?: Capture) => {
     const subject = about ?? currentCapture;
@@ -559,23 +570,7 @@ export default function SoloPage() {
   }
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-black text-white">
-      <header className="flex items-center gap-3 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
-        <span className="text-xs text-white/50">
-          {watched ? "このタブから見ています" : buffered ? "共有中（画面全体）" : "共有中（ウィンドウ）"}
-        </span>
-        <div className="ml-auto flex shrink-0 gap-2">
-          {((watched && !showingLive) || turns.length > 0 || mark !== null || answer !== null) && (
-            <button onClick={newTopic} className="rounded-full bg-white/15 px-3 py-1 text-sm">
-              新しく聞く
-            </button>
-          )}
-          <button onClick={stop} className="rounded-full bg-white/15 px-3 py-1 text-sm">
-            共有をやめる
-          </button>
-        </div>
-      </header>
-
+    <div className="fixed inset-0 flex flex-col bg-white text-slate-900 dark:bg-neutral-950 dark:text-white">
       {debug && <DebugPanel screens={screens} report={report} index={index} buffered={buffered} watched={watched} />}
 
       {/* The picture, in one box that never changes shape or position.
@@ -585,7 +580,34 @@ export default function SoloPage() {
         the area and then put the still in a scrolling full-width container,
         and every tap appeared to land in the wrong place because the target
         moved at the moment of the tap. */}
-      <div ref={stageRef} className="flex min-h-0 flex-1 items-center justify-center p-2">
+      <div ref={stageRef} className="relative flex min-h-0 flex-1 items-center justify-center p-2">
+        {/* Two small icons in the corner rather than a bar of labelled buttons.
+            The bar cost a strip of the picture for controls nobody reaches for:
+            the usual way to finish here is to close the tab. */}
+        <div className="absolute right-2 top-2 z-20 flex gap-1">
+          <button
+            onClick={refresh}
+            title="いまの画面を取り直す"
+            aria-label="いまの画面を取り直す"
+            className="rounded-full bg-black/40 p-2 text-white backdrop-blur transition hover:bg-black/60"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <path d="M21 3v6h-6" />
+            </svg>
+          </button>
+          <button
+            onClick={stop}
+            title="共有をやめる"
+            aria-label="共有をやめる"
+            className="rounded-full bg-black/40 p-2 text-white backdrop-blur transition hover:bg-black/60"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
         <div
           className="relative select-none"
           style={{ ...fitted, touchAction: "pinch-zoom" }}
@@ -609,7 +631,7 @@ export default function SoloPage() {
           onLoadedMetadata={(event) =>
             setVideoSize({ w: event.currentTarget.videoWidth, h: event.currentTarget.videoHeight })
           }
-          className={`absolute inset-0 block h-full w-full ${showingLive ? "cursor-crosshair" : ""}`}
+          className="absolute inset-0 block h-full w-full"
         />
 
         {!showingLive && currentCapture && (
@@ -644,10 +666,15 @@ export default function SoloPage() {
               // alone was too quiet to notice — the eye needs something to be
               // brighter, not merely less dimmed.
               background: [
-                "radial-gradient(circle 210px at var(--x, 50%) var(--y, 50%)," +
-                  " rgba(255,255,255,0.16) 0%, rgba(255,255,255,0) 70%)",
-                "radial-gradient(circle 300px at var(--x, 50%) var(--y, 50%)," +
-                  " rgba(37,99,235,0) 0%, rgba(37,99,235,0) 28%, rgba(37,99,235,0.20) 88%)",
+                // Kept faint. A stronger glow fogged the one part of the
+                // picture the user is trying to look at, which is the opposite
+                // of what a spotlight is for; the definition comes from the
+                // wash outside it, not from brightening the target.
+                "radial-gradient(circle 200px at var(--x, 50%) var(--y, 50%)," +
+                  " rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.07) 45%, rgba(255,255,255,0) 80%)",
+                "radial-gradient(circle 260px at var(--x, 50%) var(--y, 50%)," +
+                  " rgba(37,99,235,0) 0%, rgba(37,99,235,0) 58%," +
+                  " rgba(37,99,235,0.24) 82%, rgba(37,99,235,0.24) 100%)",
               ].join(", "),
             }}
           />

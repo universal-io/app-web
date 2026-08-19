@@ -195,8 +195,8 @@ console.log("\n[ウィンドウを共有]");
 console.log("\n[タブを共有・フォーカス保持]");
 {
   const page = await open("browser", true);
-  await page.waitForSelector("text=このタブから見ています");
-  check(true, "「このタブから見ています」と表示される");
+  await page.waitForSelector("text=タブ共有・フォーカス保持あり");
+  check(true, "タブ共有としてフォーカス保持ありで開始する");
   check(
     (await page.locator("video").first().isVisible()) &&
       (await page.locator('img[alt="共有された画面"]').count()) === 0,
@@ -254,9 +254,14 @@ console.log("\n[タブを共有・フォーカス保持]");
   check(gap < 2, "静止しても画面の位置と大きさが変わらない", `ズレ ${gap.toFixed(1)}px`);
   check((await spotlight.count()) === 0, "ピンが打たれたらカバーは消える");
 
-  await page.getByRole("button", { name: "新しく聞く" }).click();
+  check(
+    (await page.getByRole("button", { name: "共有をやめる" }).count()) === 1 &&
+      (await page.getByRole("button", { name: "いまの画面を取り直す" }).count()) === 1,
+    "操作は右上の小さなアイコン2つだけ",
+  );
+  await page.getByRole("button", { name: "いまの画面を取り直す" }).click();
   await page.waitForTimeout(250);
-  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "「新しく聞く」で動く画面に戻る");
+  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "取り直しで動く画面に戻る");
 
   // A ring drawn over moving video must mean what it means on a still.
   await page.mouse.move(live.x + live.width * 0.3, live.y + live.height * 0.3);

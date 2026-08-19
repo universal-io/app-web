@@ -78,7 +78,7 @@ export function Snapshot({ capture, pointer, annotations, onPointer, stroke }: P
         onPointerUp={onPointerUp}
         onPointerCancel={() => setDrawing(null)}
         className="relative select-none overflow-hidden rounded-xl"
-        style={{ cursor: "crosshair", touchAction: "pinch-zoom" }}
+        style={{ touchAction: "pinch-zoom" }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={capture.dataURL} alt="共有された画面" className="block w-full" draggable={false} />
