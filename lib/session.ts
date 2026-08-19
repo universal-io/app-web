@@ -4,41 +4,46 @@ import type { Session } from "@supabase/supabase-js";
 import { supabaseBrowserClient } from "@/lib/supabase";
 
 /**
- * A session, without ever asking for one.
+ * Signing in, and staying signed in.
  *
- * The Gateway requires a Supabase bearer token on every AI route, and that is
- * not a formality to route around: it is what meters usage and what keeps the
- * model providers' keys on the server. But "authenticated" does not have to
- * mean "signed in". An anonymous sign-in produces a real session with a real
- * user id and no interaction at all, which is the only way the product's
- * premise — open a link and go — survives contact with a metered backend.
+ * The Supabase project here is the same one app-mac uses, so a Google account
+ * signed in on this page is literally the same `auth.users` row, the same
+ * tenant and the same monthly allowance as on the desktop app. Nothing had to
+ * be built for that; it follows from pointing at the same project, and it is
+ * the reason this client must not invent an identity of its own.
  *
- * Anonymous users are provisioned exactly like any other: bs_provision_user
- * gives them a personal tenant on the free plan. Narrowing that to a smaller
- * guest allowance is an anti-abuse measure for a public URL, not a prerequisite
- * for the product working (docs/two-device-mode.md §5).
+ * Every model call is metered and costs real money, so it is attributed to a
+ * real account rather than to whoever happened to open the page.
  */
-export async function ensureSession(): Promise<Session> {
-  const supabase = supabaseBrowserClient();
 
-  const { data: existing } = await supabase.auth.getSession();
-  if (existing.session) return existing.session;
+/** Where to send the browser back to after Google. */
+function callbackURL(next: string): string {
+  const url = new URL("/auth/callback", window.location.origin);
+  if (next) url.searchParams.set("next", next);
+  return url.toString();
+}
 
-  const { data, error } = await supabase.auth.signInAnonymously();
-  if (error) {
-    // The overwhelmingly likely cause is a project setting rather than a bug,
-    // and a message that says which switch to flip is worth more than the
-    // library's generic text.
-    throw new SessionError(
-      "ゲストとして開始できませんでした。Supabase の Authentication → Sign In / Providers で"
-      + "「Anonymous sign-ins」が有効になっているか確認してください。"
-      + `（詳細: ${error.message}）`,
-    );
-  }
-  if (!data.session) {
-    throw new SessionError("ゲストセッションを作成できませんでした。");
-  }
-  return data.session;
+export async function currentSession(): Promise<Session | null> {
+  const { data } = await supabaseBrowserClient().auth.getSession();
+  return data.session ?? null;
+}
+
+export async function signInWithGoogle(next: string): Promise<void> {
+  const { error } = await supabaseBrowserClient().auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: callbackURL(next),
+      // Somebody with several accounts is otherwise silently signed in as
+      // whichever one Google happens to prefer, which is the wrong one often
+      // enough to be worth a click (app-mac asks for this too).
+      queryParams: { prompt: "select_account" },
+    },
+  });
+  if (error) throw new SessionError(`Googleのログインを開始できませんでした。（${error.message}）`);
+}
+
+export async function signOut(): Promise<void> {
+  await supabaseBrowserClient().auth.signOut();
 }
 
 /**
@@ -47,18 +52,33 @@ export async function ensureSession(): Promise<Session> {
  * The session obtained when the page loaded is not good enough. Access tokens
  * expire in about an hour and this product is built to be left open all day —
  * a tab somebody opened when they got stuck at 10am and asked a question at
- * noon got "ログインが必要です" for a product that has no login. The client
- * refreshes in the background, so asking it again costs nothing and returns the
- * current token rather than the one from page load.
+ * noon got "ログインが必要です" for a token that had quietly gone stale. The
+ * client refreshes in the background, so asking it again costs nothing and
+ * returns the current token rather than the one from page load.
  */
 export async function accessToken(): Promise<string> {
-  const supabase = supabaseBrowserClient();
-  const { data } = await supabase.auth.getSession();
-  if (data.session) return data.session.access_token;
-  // Storage cleared, or signed out in another tab. A guest session is free to
-  // create, so recreate it rather than telling the user to do something about
-  // an account they never made.
-  return (await ensureSession()).access_token;
+  const session = await currentSession();
+  if (!session) throw new SessionError("ログインの有効期限が切れました。もう一度サインインしてください。");
+  return session.access_token;
+}
+
+/**
+ * Give the account its tenant and entitlement.
+ *
+ * The Supabase project is shared with older work, so there is deliberately no
+ * trigger on `auth.users` — every client calls this itself after signing in
+ * (api-gateway/docs/supabase-setup.md). The Gateway would do it lazily on the
+ * first request anyway, but doing it here means the account exists before the
+ * user asks anything, and a failure is reported at sign-in where it can be
+ * understood rather than as a failed question.
+ */
+const provisioned = new Set<string>();
+
+export async function ensureProvisioned(session: Session): Promise<void> {
+  if (provisioned.has(session.user.id)) return;
+  const { error } = await supabaseBrowserClient().rpc("bs_initialize_current_user");
+  if (error) throw new SessionError(`アカウントを準備できませんでした。（${error.message}）`);
+  provisioned.add(session.user.id);
 }
 
 export class SessionError extends Error {

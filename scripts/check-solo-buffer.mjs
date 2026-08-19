@@ -88,24 +88,61 @@ const stub = ({ surface, holdsFocus }) => {
 const browser = await chromium.launch({ channel: "chrome" });
 
 /**
- * One anonymous session for the whole run, reused between runs.
+ * A signed-in session, without signing in.
  *
- * Every fresh browser context signs in as a new anonymous user, and Supabase
- * rate-limits those per address. Running this a few times in a row started
- * returning 429, the session never arrived, and the failure showed up as
- * "the answer never appeared" — a real limit wearing the costume of a broken
- * feature. Keeping the storage state makes the check repeatable.
+ * The product requires a Google account and this check cannot hold one, so the
+ * parts that depend on an account are stood in for: Supabase's session getter
+ * and the provisioning RPC. Everything else — capture, gestures, the buffer,
+ * the request the Gateway would receive — is the real code.
+ *
+ * The token is deliberately obvious nonsense. The Gateway is stubbed too, so
+ * nothing ever presents it anywhere, and a real one must never end up here.
  */
-const STATE = "/tmp/uio-solo-check-state.json";
-const context = await browser.newContext(
-  fs.existsSync(STATE) ? { storageState: STATE } : {},
-);
+/**
+ * A signed-in session, without signing in.
+ *
+ * The product requires a Google account and this check cannot hold one, so the
+ * two things that depend on an account are stood in for: the stored session and
+ * the provisioning RPC. Everything else — capture, gestures, the buffer, the
+ * request the Gateway would receive — is the real code.
+ */
+const context = await browser.newContext();
 
-// The Gateway is stood in for, so the whole ask path can be exercised — mark
-// burnt into the image, request sent, answer and boxes drawn — without spending
-// a real call or needing the network.
+// supabase-js reads its session from this localStorage key, so putting one
+// there is enough to be signed in. The token is obvious nonsense and the
+// Gateway is stubbed, so it is never presented to anything.
+const ref = fs
+  .readFileSync(new URL("../.env.local", import.meta.url), "utf8")
+  .match(/NEXT_PUBLIC_SUPABASE_URL=https:\/\/([a-z0-9]+)\.supabase\.co/)?.[1];
+if (!ref) throw new Error(".env.local から Supabase のプロジェクト ref を読めませんでした。");
+
+const SESSION = {
+  access_token: "test-token-not-a-real-credential",
+  refresh_token: "test-refresh-token",
+  token_type: "bearer",
+  expires_in: 3600,
+  // Far enough ahead that the client never tries to refresh it over the wire.
+  expires_at: 4102444800,
+  user: {
+    id: "00000000-0000-4000-8000-000000000001",
+    aud: "authenticated",
+    role: "authenticated",
+    email: "check@example.invalid",
+    app_metadata: {},
+    user_metadata: {},
+    created_at: "2020-01-01T00:00:00.000Z",
+  },
+};
+
+/** Every request body the Gateway would have received, for the checks to read. */
 const sent = [];
+
 async function stubGateway(page) {
+  // Provisioning is an RPC against the real project, which a made-up token
+  // cannot do. It is answered here so the account gate opens.
+  await page.route("**/rest/v1/rpc/bs_initialize_current_user", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '"00000000-0000-4000-8000-000000000002"' }),
+  );
   await page.route("**/ai/vision", async (route) => {
     const body = route.request().postDataJSON();
     sent.push(body);
@@ -134,6 +171,10 @@ async function stubGateway(page) {
 async function open(surface, holdsFocus = false) {
   const page = await context.newPage();
   page.on("pageerror", (error) => console.log("PAGE ERROR:", error.message));
+  await page.addInitScript(
+    ([key, session]) => window.localStorage.setItem(key, JSON.stringify(session)),
+    [`sb-${ref}-auth-token`, SESSION],
+  );
   if (process.env.TRACE) page.on("console", (m) => console.log("  console:", m.text()));
   if (process.env.TRACE) page.on("requestfailed", (r) => console.log("  reqfail:", r.url(), r.failure()?.errorText));
   await stubGateway(page);
@@ -145,6 +186,22 @@ async function open(surface, holdsFocus = false) {
 
 const panel = (page) => page.locator("div.font-mono").first().innerText();
 const strip = (page) => page.locator("img.h-12").count();
+
+// ── サインインしていない場合 ──────────────────────────────
+console.log("\n[サインインしていない]");
+{
+  const page = await context.newPage();
+  await page.goto(`${BASE}/solo`, { waitUntil: "networkidle" });
+  check(
+    (await page.getByRole("button", { name: /Googleでサインイン/ }).count()) === 1,
+    "サインイン画面が出る",
+  );
+  check(
+    (await page.getByRole("button", { name: "画面を選ぶ" }).count()) === 0,
+    "サインインせずに画面共有には進めない",
+  );
+  await page.close();
+}
 
 // ── 画面全体を共有した場合 ────────────────────────────────
 console.log("\n[画面全体を共有]");
@@ -420,7 +477,6 @@ console.log("\n[タブを共有・フォーカス保持]");
   await page.close();
 }
 
-await context.storageState({ path: STATE });
 await browser.close();
 console.log(failures === 0 ? "\nすべて通過" : `\n${failures} 件失敗`);
 process.exit(failures === 0 ? 0 : 1);

@@ -1,5 +1,23 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
+
+/**
+ * Whether this is running in the browser yet.
+ *
+ * Capability checks — is there a `getDisplayMedia` here at all — can only be
+ * answered on the client, but answering differently during hydration than the
+ * server did breaks it. This returns false on the server and true once
+ * hydrated, which is exactly the distinction those checks need.
+ */
+export function useMounted(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+}
+
 export function Notice({
   tone,
   children,

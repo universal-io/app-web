@@ -7,7 +7,8 @@ import { captureFrame, type Capture } from "@/lib/screen-share";
 import { withPointerMark } from "@/lib/marker";
 import { createViewerPeer } from "@/lib/peer";
 import { joinRoom, type RoomConnection } from "@/lib/room";
-import { accessToken, ensureSession, SessionError } from "@/lib/session";
+import { accessToken } from "@/lib/session";
+import { RequireAccount } from "@/app/auth";
 import { Notice } from "@/app/ui";
 import { Snapshot, type Point } from "@/app/snapshot";
 import { AnswerPanel, QuestionInput } from "@/app/ask";
@@ -28,7 +29,16 @@ type Turn = { role: "user" | "assistant"; text: string };
  */
 export default function WatchPage({ params }: { params: Promise<{ roomId: string }> }) {
   const { roomId } = use(params);
-  const [session, setSession] = useState<Session | null>(null);
+  // The phone is the side that asks, so it is the side that spends the
+  // allowance — it needs the account just as much as the machine sharing.
+  return (
+    <RequireAccount next={`/watch/${roomId}`}>
+      {(session) => <Watch roomId={roomId} session={session} />}
+    </RequireAccount>
+  );
+}
+
+function Watch({ roomId, session }: { roomId: string; session: Session }) {
   const [connected, setConnected] = useState(false);
   const [capture, setCapture] = useState<Capture | null>(null);
   const [pointer, setPointer] = useState<Pointer | null>(null);
@@ -41,20 +51,6 @@ export default function WatchPage({ params }: { params: Promise<{ roomId: string
   const videoRef = useRef<HTMLVideoElement>(null);
   const roomRef = useRef<RoomConnection | null>(null);
   const peerRef = useRef<ReturnType<typeof createViewerPeer> | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    ensureSession()
-      .then((next) => !cancelled && setSession(next))
-      .catch((caught: unknown) => {
-        if (!cancelled) {
-          setError(caught instanceof SessionError ? caught.message : "セッションを開始できませんでした。");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     let closed = false;

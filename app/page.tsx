@@ -11,8 +11,9 @@ import {
   ScreenShareError,
   startScreenShare,
 } from "@/lib/screen-share";
-import { ensureSession, SessionError } from "@/lib/session";
-import { Notice, Shell } from "@/app/ui";
+import { signOut } from "@/lib/session";
+import { RequireAccount, useAccount } from "@/app/auth";
+import { Notice, Shell, useMounted } from "@/app/ui";
 import { Join } from "@/app/join";
 
 /**
@@ -24,7 +25,11 @@ import { Join } from "@/app/join";
  * sit on top of the very screen in question (docs/two-device-mode.md §2).
  */
 export default function SharePage() {
-  const [ready, setReady] = useState(false);
+  return <RequireAccount next="/">{() => <Share />}</RequireAccount>;
+}
+
+function Share() {
+  const ready = useMounted();
   const [error, setError] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
@@ -38,20 +43,6 @@ export default function SharePage() {
   // server has no navigator, so deciding there would render the sharing side to
   // every device — including the phone, which is never the sharing side.
   const unavailable = ready ? screenShareUnavailableReason() : null;
-
-  useEffect(() => {
-    let cancelled = false;
-    ensureSession()
-      .then(() => !cancelled && setReady(true))
-      .catch((caught: unknown) => {
-        if (cancelled) return;
-        setError(caught instanceof SessionError ? caught.message : "セッションを開始できませんでした。");
-        setReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (stream && videoRef.current) videoRef.current.srcObject = stream;
@@ -179,6 +170,7 @@ export default function SharePage() {
           <div className="border-t border-slate-200 pt-6 dark:border-slate-700">
             <Join />
           </div>
+          <Account />
         </div>
       ) : (
         <div className="space-y-5">
@@ -222,6 +214,35 @@ export default function SharePage() {
         </div>
       )}
     </Shell>
+  );
+}
+
+/**
+ * Which account this is, and the way out of it.
+ *
+ * Small and at the bottom: it is not what anybody came for, but a signed-in
+ * product that will not say who you are, on a machine that may be shared, is
+ * asking to be distrusted.
+ */
+function Account() {
+  const { session } = useAccount();
+  const [busy, setBusy] = useState(false);
+  if (!session) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-6 text-xs text-slate-500 dark:border-slate-700">
+      <span>{session.user.email ?? "サインイン済み"}</span>
+      <button
+        onClick={() => {
+          setBusy(true);
+          void signOut();
+        }}
+        disabled={busy}
+        className="underline disabled:opacity-50"
+      >
+        サインアウト
+      </button>
+      <span className="text-slate-400">Mac版と同じアカウントです</span>
+    </div>
   );
 }
 

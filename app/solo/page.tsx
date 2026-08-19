@@ -22,8 +22,9 @@ import {
   type RecentScreensReport,
 } from "@/lib/recent-screens";
 import { withPointerMark } from "@/lib/marker";
-import { accessToken, ensureSession, SessionError } from "@/lib/session";
-import { Notice, Shell } from "@/app/ui";
+import { accessToken } from "@/lib/session";
+import { RequireAccount } from "@/app/auth";
+import { Notice, Shell, useMounted } from "@/app/ui";
 import { markFrom, Snapshot, Stroke, type Point } from "@/app/snapshot";
 import { AnswerPanel, QuestionInput } from "@/app/ask";
 
@@ -45,9 +46,12 @@ type Turn = { role: "user" | "assistant"; text: string };
  * putting the right one of those in front of them.
  */
 export default function SoloPage() {
-  const [ready, setReady] = useState(false);
-  const [session, setSession] = useState<Session | null>(null);
+  return <RequireAccount next="/solo">{(session) => <Solo session={session} />}</RequireAccount>;
+}
+
+function Solo({ session }: { session: Session }) {
   const [error, setError] = useState<string | null>(null);
+  const mounted = useMounted();
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [surface, setSurface] = useState<DisplaySurface>("monitor");
@@ -101,28 +105,10 @@ export default function SoloPage() {
   const watched = surface === "browser" && keptFocus;
   const buffered = surface === "monitor";
 
-  // Read once the session resolves, which only happens in the browser. Deciding
-  // on the server would render the sharing side to every device, including the
-  // phones that cannot capture a screen at all.
-  const unavailable = ready ? screenShareUnavailableReason() : null;
-
-  useEffect(() => {
-    let cancelled = false;
-    ensureSession()
-      .then((next) => {
-        if (cancelled) return;
-        setSession(next);
-        setReady(true);
-      })
-      .catch((caught: unknown) => {
-        if (cancelled) return;
-        setError(caught instanceof SessionError ? caught.message : "セッションを開始できませんでした。");
-        setReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Read in the browser only: the server has no navigator, and deciding there
+  // would render the sharing side to every device, including the phones that
+  // cannot capture a screen at all.
+  const unavailable = mounted ? screenShareUnavailableReason() : null;
 
   const currentCapture: Capture | null = buffered ? (screens[index]?.capture ?? null) : frozen;
   /** Live is the default for a watched tab; a still only appears once there is
@@ -625,7 +611,7 @@ export default function SoloPage() {
     [answer, currentCapture],
   );
 
-  if (!ready) return <Shell><p className="text-slate-500">読み込み中…</p></Shell>;
+  if (!mounted) return <Shell><p className="text-slate-500">読み込み中…</p></Shell>;
 
   if (unavailable) {
     return (

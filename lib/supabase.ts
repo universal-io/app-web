@@ -7,10 +7,10 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
  * holds. The Gateway does every model call, so nothing here can be misused to
  * spend an AI provider key — there is none to leak.
  *
- * M1 signs in with an existing account. The anonymous guest flow that makes
- * "open a link and go" real needs a `guest` plan and a provisioning branch that
- * do not exist in the Gateway yet (docs/two-device-mode.md §5), and
- * shipping without it would only mean a sign-in wall, not a broken product.
+ * This points at the same Supabase project as the Gateway and the desktop app,
+ * which is what makes an account here the same account there — same tenant,
+ * same allowance, same history. It is not a detail of configuration but the
+ * whole of how identity is shared across the family (docs/auth.md).
  */
 let client: SupabaseClient | null = null;
 

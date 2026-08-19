@@ -26,6 +26,7 @@
 | [docs/capabilities.md](docs/capabilities.md) | **やりたいこと・できること・できないこと。技術的な可否の正本。**新しい案を思いついたらまずここ |
 | [docs/solo-mode.md](docs/solo-mode.md) | ソロモード（1台で完結）の現在の設計。**主経路** |
 | [docs/two-device-mode.md](docs/two-device-mode.md) | 2台構成モードの現在の設計と、公開前に必ず戻ること |
+| [docs/auth.md](docs/auth.md) | 認証とアカウント。**本家と同一のSupabaseプロジェクト**である理由と、外部設定 |
 | [docs/log.md](docs/log.md) | 時系列の記録。**間違えた記録**が主な価値。普段は読まない |
 
 ### 他リポジトリ（座標に触るなら必読）
@@ -57,13 +58,12 @@ cp .env.example .env.local   # Supabaseの2値を埋める
 npm run dev                  # http://localhost:7380
 ```
 
-**ログイン画面は無い。** ページを開くと匿名サインインでセッションが張られる。
-Gatewayは全AI routeでBearerトークンを要求する（それが課金計測とAPIキー秘匿の担保
-なので迂回しない）が、「認証が要る」と「ログインさせる」は別であり、匿名セッションなら
-ユーザーは何も入力しない。
+**Googleサインインが必要。** 1回の質問がモデル呼び出し1回で実費が出るため、
+アカウントに紐づけて計測する。**Mac版とまったく同じアカウント**（同一のSupabase
+プロジェクト）なので、どちらでサインインしても利用枠と履歴は共通になる。
 
-前提として **Supabase の Authentication → Sign In / Providers で
-「Anonymous sign-ins」を有効にする**必要がある。無効だとページに理由が表示される。
+**動かす前に、Supabase と Google Cloud に app-web のURLを登録する必要がある**
+（[docs/auth.md](docs/auth.md) §6）。未登録だとリダイレクトで失敗する。
 
 Gatewayは既定で本番（`api.universal-io.com`）を見る。`localhost:7380` はGateway側の
 CORS許可リストに入っている。**Gatewayは `../api-gateway`（別リポジトリ）**で、
