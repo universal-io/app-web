@@ -77,6 +77,8 @@ export default function SoloPage() {
     () => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug"),
   );
 
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [stage, setStage] = useState<{ w: number; h: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const sourceRef = useRef<FrameSource | null>(null);
   const recorderRef = useRef<RecentScreensHandle | null>(null);
@@ -121,9 +123,40 @@ export default function SoloPage() {
   /** Live is the default for a watched tab; a still only appears once there is
    * something to ask about, and "ライブに戻る" puts it away again. */
   const showingLive = watched && frozen === null;
+  /** The shape of the box the picture lives in. Taken from whichever source is
+   * showing; both describe the same surface, so it does not change between them
+   * and neither does anything the user is looking at. */
+  const shape = currentCapture
+    ? { w: currentCapture.width, h: currentCapture.height }
+    : videoSize;
+
+  /** The picture's box: the largest one of its shape that fits the area.
+   *
+   * Measured rather than left to CSS. `aspect-ratio` with max-width and
+   * max-height is over-constrained in this arrangement — the box has nothing
+   * in flow to size it — and the version that relied on it put the still 242px
+   * away from the video it replaced. Both sources describe the same surface,
+   * so this box does not change when one replaces the other, and nothing the
+   * user is aiming at moves. */
+  const fitted = ((): { width: number; height: number } | undefined => {
+    if (!shape || !stage || stage.w <= 0 || stage.h <= 0) return undefined;
+    const scale = Math.min(stage.w / shape.w, stage.h / shape.h);
+    return { width: Math.floor(shape.w * scale), height: Math.floor(shape.h * scale) };
+  })();
   const belongsToCurrent = mark !== null && mark.capture === currentCapture;
   const pointer = belongsToCurrent ? mark.pointer : null;
   const stroke = belongsToCurrent ? mark.stroke : null;
+
+  useEffect(() => {
+    const element = stageRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setStage({ w: width, h: height });
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [stream]);
 
   const stop = useCallback(() => {
     recorderRef.current?.stop();
@@ -380,22 +413,23 @@ export default function SoloPage() {
   }, [liveStroke, setLiveStroke]);
 
   /**
-   * Back to the moving picture. The exchange is kept: somebody who operated the
-   * shared tab and came back to ask "then what?" is still on the same subject,
-   * and it is a new gesture — not a new view — that starts a new one.
+   * Done with this subject.
+   *
+   * This also puts the moving picture back, which is why there is no separate
+   * "back to live" button. A second button would have made "live" a mode the
+   * user has to hold in their head and we would owe them an explanation of it;
+   * as it is, they never learn the word. They are looking at their screen, and
+   * it holds still while they ask about it.
    */
-  const backToLive = useCallback(() => {
-    setFrozen(null);
-    setMark(null);
-    setAnswer(null);
-  }, []);
-
   const newTopic = useCallback(() => {
+    // Only a watched tab has a moving picture to return to. Clearing the still
+    // in the other modes would leave an empty screen until the next grab.
+    if (watched) setFrozen(null);
     setMark(null);
     setAnswer(null);
     setTurns([]);
     setQuestion("");
-  }, []);
+  }, [watched]);
 
   const ask = useCallback(async (about?: Capture) => {
     const subject = about ?? currentCapture;
@@ -515,12 +549,7 @@ export default function SoloPage() {
           {watched ? "このタブから見ています" : buffered ? "共有中（画面全体）" : "共有中（ウィンドウ）"}
         </span>
         <div className="ml-auto flex shrink-0 gap-2">
-          {watched && !showingLive && (
-            <button onClick={backToLive} className="rounded-full bg-white/15 px-3 py-1 text-sm">
-              ライブに戻る
-            </button>
-          )}
-          {turns.length > 0 && (
+          {((watched && !showingLive) || turns.length > 0 || mark !== null || answer !== null) && (
             <button onClick={newTopic} className="rounded-full bg-white/15 px-3 py-1 text-sm">
               新しく聞く
             </button>
@@ -533,127 +562,107 @@ export default function SoloPage() {
 
       {debug && <DebugPanel screens={screens} report={report} index={index} buffered={buffered} watched={watched} />}
 
-      {/* One video element for the whole life of the share, because replacing it
-          drops the stream. It is the main view for a watched tab and a thumbnail
-          otherwise — where it is kept only because on browsers without
-          ImageCapture it is the one thing still decoding frames, and a video
-          that is not displayed is not guaranteed to (docs/log.md 2026-08-15). */}
-      <div className={showingLive ? "relative min-h-0 flex-1" : "relative min-h-0 flex-1 overflow-auto overscroll-contain"}>
-        {/* One video element for the whole share, in one position in the tree.
-            Putting a second one in the other branch of a ternary looks harmless
-            and is not: React unmounts and remounts it, the new element has no
-            srcObject, and the live view comes back blank. */}
+      {/* The picture, in one box that never changes shape or position.
+        Moving and held-still are the same picture in the same place — the
+        still is simply laid over the video — so touching something does not
+        make it jump somewhere else. An earlier version fitted the video to
+        the area and then put the still in a scrolling full-width container,
+        and every tap appeared to land in the wrong place because the target
+        moved at the moment of the tap. */}
+      <div ref={stageRef} className="flex min-h-0 flex-1 items-center justify-center p-2">
         <div
-          className={
-            showingLive
-              ? "flex h-full w-full items-center justify-center"
-              : "pointer-events-none absolute bottom-2 left-2 z-10"
+          className="relative select-none"
+          style={{ ...fitted, touchAction: "pinch-zoom" }}
+        onPointerDown={showingLive ? onLiveDown : undefined}
+        onPointerMove={showingLive ? onLiveMove : undefined}
+        onPointerUp={showingLive ? () => void onLiveUp() : undefined}
+        onPointerCancel={showingLive ? () => setLiveStroke(null) : undefined}
+      >
+        {/* Always mounted, always painted — a video that is not displayed is
+            not guaranteed to decode, and on browsers without ImageCapture it
+            is the only thing producing frames. When a still is up it is
+            covered by it rather than hidden. */}
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          onLoadedMetadata={(event) =>
+            setVideoSize({ w: event.currentTarget.videoWidth, h: event.currentTarget.videoHeight })
           }
-        >
-          <div
-            className={showingLive ? "relative max-h-full max-w-full select-none" : "relative"}
-            // The box is given the picture's shape, so the element's edges and
-            // the picture's edges are the same thing. Letterboxing inside the
-            // element would mean every mark had to subtract the bars first —
-            // one more place for a coordinate to go quietly wrong.
-            style={
-              showingLive && videoSize
-                ? { aspectRatio: `${videoSize.w} / ${videoSize.h}`, touchAction: "pinch-zoom" }
-                : undefined
-            }
-            onPointerDown={showingLive ? onLiveDown : undefined}
-            onPointerMove={showingLive ? onLiveMove : undefined}
-            onPointerUp={showingLive ? () => void onLiveUp() : undefined}
-            onPointerCancel={showingLive ? () => setLiveStroke(null) : undefined}
-          >
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              onLoadedMetadata={(event) =>
-                setVideoSize({ w: event.currentTarget.videoWidth, h: event.currentTarget.videoHeight })
-              }
-              className={
-                showingLive
-                  ? "block h-full w-full cursor-crosshair"
-                  : "block w-12 rounded border border-white/15 opacity-30"
-              }
-            />
-            {showingLive && liveStroke && <Stroke points={liveStroke} />}
-          </div>
-        </div>
+          className={`absolute inset-0 block h-full w-full ${showingLive ? "cursor-crosshair" : ""}`}
+        />
 
         {!showingLive && currentCapture && (
-          <Snapshot
-            capture={currentCapture}
-            pointer={pointer}
-            stroke={stroke}
-            annotations={annotations}
-            onPointer={point}
-          />
-        )}
-
-        {!showingLive && !currentCapture && (
-          <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-            {buffered ? (
-              <>
-                {/* The only thing this mode ever teaches, and it is shown once:
-                    after the first return there is always a screen here. */}
-                <p className="text-lg font-medium">分からない画面に戻ってください</p>
-                <p className="max-w-md text-sm leading-relaxed text-white/60">
-                  このタブに戻ってくると、あなたが見ていた画面がここに映ります。
-                  そうしたら、分からないところを指して質問してください。
-                </p>
-              </>
-            ) : (
-              <p className="text-sm text-white/60">共有した画面を読み込んでいます…</p>
-            )}
-            {error && <Notice tone="error">{error}</Notice>}
+          <div className="absolute inset-0">
+            <Snapshot
+              capture={currentCapture}
+              pointer={pointer}
+              stroke={stroke}
+              annotations={annotations}
+              onPointer={point}
+            />
           </div>
         )}
+
+        {showingLive && liveStroke && <Stroke points={liveStroke} />}
+      </div>
       </div>
 
-      {showingLive ? (
-        <div className="shrink-0 space-y-2 bg-neutral-900/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
-          {error && <Notice tone="error">{error}</Notice>}
+      {!showingLive && !currentCapture && (
+        <div className="shrink-0 px-6 pb-2 text-center">
+          {buffered ? (
+            <>
+              {/* The only thing this mode ever teaches, and it is shown once:
+                  after the first return there is always a screen here. */}
+              <p className="text-lg font-medium">分からない画面に戻ってください</p>
+              <p className="mx-auto max-w-md text-sm leading-relaxed text-white/60">
+                このタブに戻ってくると、あなたが見ていた画面がここに映ります。
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-white/60">共有した画面を読み込んでいます…</p>
+          )}
+        </div>
+      )}
+
+      {buffered && screens.length > 1 && (
+        <div className="shrink-0 space-y-1 px-3 pb-1">
+          <p className="text-[11px] text-white/40">
+            別の画面について聞くときは選んでください（新しい順・←→キーでも移動できます）
+          </p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {screens.map((screen, at) => (
+              <button
+                key={screen.id}
+                onClick={() => selectCandidate(at)}
+                className={`shrink-0 overflow-hidden rounded border-2 ${
+                  at === index ? "border-blue-500" : "border-transparent opacity-60"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={screen.capture.dataURL} alt="" className="h-12 w-20 object-cover" draggable={false} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="shrink-0 space-y-2 bg-neutral-900/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
+        {error && <Notice tone="error">{error}</Notice>}
+        {answer && <AnswerPanel answer={answer.value} />}
+        {!answer && (
           <p className="text-xs text-white/50">
             分からないところをクリック、または囲んでください。そのまま質問を書いても聞けます。
           </p>
-          <QuestionInput value={question} onChange={setQuestion} onSubmit={askAboutLive} busy={busy} />
-        </div>
-      ) : (
-        <>
-
-          {buffered && screens.length > 1 && (
-            <div className="shrink-0 space-y-1 px-3 pb-1">
-              <p className="text-[11px] text-white/40">
-                別の画面について聞くときは選んでください（新しい順・←→キーでも移動できます）
-              </p>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {screens.map((screen, at) => (
-                  <button
-                    key={screen.id}
-                    onClick={() => selectCandidate(at)}
-                    className={`shrink-0 overflow-hidden rounded border-2 ${
-                      at === index ? "border-blue-500" : "border-transparent opacity-60"
-                    }`}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={screen.capture.dataURL} alt="" className="h-12 w-20 object-cover" draggable={false} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="shrink-0 space-y-2 bg-neutral-900/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
-            {error && <Notice tone="error">{error}</Notice>}
-            {answer && <AnswerPanel answer={answer.value} />}
-            <QuestionInput value={question} onChange={setQuestion} onSubmit={ask} busy={busy} />
-          </div>
-        </>
-      )}
+        )}
+        <QuestionInput
+          value={question}
+          onChange={setQuestion}
+          onSubmit={showingLive ? askAboutLive : ask}
+          busy={busy}
+        />
+      </div>
     </div>
   );
 }

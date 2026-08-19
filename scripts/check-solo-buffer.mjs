@@ -226,9 +226,25 @@ console.log("\n[タブを共有・フォーカス保持]");
   );
   check(offBy < 12, "印の位置がクリック位置と一致する", `ズレ ${offBy.toFixed(1)}px`);
 
-  await page.getByRole("button", { name: "ライブに戻る" }).click();
+  check(
+    (await page.getByRole("button", { name: "ライブに戻る" }).count()) === 0,
+    "「ライブに戻る」のようなモード切替ボタンは無い",
+  );
+
+  // The picture must not move when it stops moving. A tap that makes its own
+  // target jump is a tap that feels like it missed.
+  const stillBox = await page.locator('img[alt="共有された画面"]').boundingBox();
+  const gap = Math.max(
+    Math.abs(stillBox.x - live.x),
+    Math.abs(stillBox.y - live.y),
+    Math.abs(stillBox.width - live.width),
+    Math.abs(stillBox.height - live.height),
+  );
+  check(gap < 2, "静止しても画面の位置と大きさが変わらない", `ズレ ${gap.toFixed(1)}px`);
+
+  await page.getByRole("button", { name: "新しく聞く" }).click();
   await page.waitForTimeout(250);
-  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "「ライブに戻る」で静止画が消える");
+  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "「新しく聞く」で動く画面に戻る");
 
   // A ring drawn over moving video must mean what it means on a still.
   await page.mouse.move(live.x + live.width * 0.3, live.y + live.height * 0.3);
