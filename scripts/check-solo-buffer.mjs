@@ -15,6 +15,7 @@
 // frames, and how often. The tab here is only pretending to be hidden, so its
 // timers are not throttled. That number has to come from `?debug` on a real
 // share (docs/solo-mode.md §7).
+import fs from "node:fs";
 import { chromium } from "playwright";
 
 const BASE = "http://localhost:7380";
@@ -86,6 +87,20 @@ const stub = ({ surface, holdsFocus }) => {
 
 const browser = await chromium.launch({ channel: "chrome" });
 
+/**
+ * One anonymous session for the whole run, reused between runs.
+ *
+ * Every fresh browser context signs in as a new anonymous user, and Supabase
+ * rate-limits those per address. Running this a few times in a row started
+ * returning 429, the session never arrived, and the failure showed up as
+ * "the answer never appeared" — a real limit wearing the costume of a broken
+ * feature. Keeping the storage state makes the check repeatable.
+ */
+const STATE = "/tmp/uio-solo-check-state.json";
+const context = await browser.newContext(
+  fs.existsSync(STATE) ? { storageState: STATE } : {},
+);
+
 // The Gateway is stood in for, so the whole ask path can be exercised — mark
 // burnt into the image, request sent, answer and boxes drawn — without spending
 // a real call or needing the network.
@@ -117,8 +132,10 @@ async function stubGateway(page) {
 }
 
 async function open(surface, holdsFocus = false) {
-  const page = await browser.newPage();
+  const page = await context.newPage();
   page.on("pageerror", (error) => console.log("PAGE ERROR:", error.message));
+  if (process.env.TRACE) page.on("console", (m) => console.log("  console:", m.text()));
+  if (process.env.TRACE) page.on("requestfailed", (r) => console.log("  reqfail:", r.url(), r.failure()?.errorText));
   await stubGateway(page);
   await page.addInitScript(stub, { surface, holdsFocus });
   await page.goto(`${BASE}/solo?debug`, { waitUntil: "networkidle" });
@@ -241,7 +258,7 @@ console.log("\n[タブを共有・フォーカス保持]");
   // The picture is indistinguishable from the real application until something
   // says otherwise, so a wash with a spotlight under the cursor asks for the
   // first move — and gets out of the way once it has been made.
-  const spotlight = page.locator('div[aria-hidden][style*="radial-gradient"]');
+  const spotlight = page.locator("div[data-guide]");
   check((await spotlight.count()) === 1, "指す前は青いカバーとスポットライトが出ている");
 
   const live = await page.locator("video").first().boundingBox();
@@ -258,6 +275,24 @@ console.log("\n[タブを共有・フォーカス保持]");
   check(offPicture !== moved, "絵の外に出ても追従を続ける", `--x=${offPicture}`);
   await page.mouse.move(live.x + live.width / 3, live.y + live.height / 3);
   await page.waitForTimeout(120);
+
+  // macOS reports continuous cursor movement only to the focused window, so a
+  // spotlight left behind would point at somewhere the cursor has left.
+  await page.evaluate(() => {
+    document.hasFocus = () => false;
+    window.dispatchEvent(new Event("blur"));
+  });
+  await page.waitForTimeout(150);
+  const unfocused = await spotlight.evaluate((el) => el.style.background || getComputedStyle(el).background);
+  check(!unfocused.includes("radial-gradient"), "フォーカスが無い間はスポットライトを出さない");
+
+  await page.evaluate(() => {
+    document.hasFocus = () => true;
+    window.dispatchEvent(new Event("focus"));
+  });
+  await page.waitForTimeout(150);
+  const refocused = await spotlight.evaluate((el) => el.style.background || getComputedStyle(el).background);
+  check(refocused.includes("radial-gradient"), "フォーカスが戻ればスポットライトも戻る");
 
   sent.length = 0;
   await page.mouse.click(live.x + live.width / 2, live.y + live.height / 2);
@@ -385,6 +420,7 @@ console.log("\n[タブを共有・フォーカス保持]");
   await page.close();
 }
 
+await context.storageState({ path: STATE });
 await browser.close();
 console.log(failures === 0 ? "\nすべて通過" : `\n${failures} 件失敗`);
 process.exit(failures === 0 ? 0 : 1);

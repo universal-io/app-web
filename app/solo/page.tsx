@@ -152,6 +152,29 @@ export default function SoloPage() {
   const pointer = belongsToCurrent ? mark.pointer : null;
   /** The wash and spotlight are up only until something has been pointed at. */
   const guiding = pointer === null;
+
+  /**
+   * Whether this window is the one the cursor is actually being reported to.
+   *
+   * On macOS only the key window receives continuous mouse-moved events. A
+   * background window still gets the boundary events, so the cursor entering it
+   * updates the light once and then it sits there — pointing confidently at
+   * somewhere the cursor left long ago. A light that lies about where you are
+   * is worse than no light, so while this window is not focused the spotlight
+   * is dropped and the wash goes flat. The position is still recorded from
+   * whatever movement does arrive, so focus returning does not make it jump.
+   */
+  const [focused, setFocused] = useState(true);
+  useEffect(() => {
+    const sync = () => setFocused(document.hasFocus());
+    sync();
+    window.addEventListener("focus", sync);
+    window.addEventListener("blur", sync);
+    return () => {
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("blur", sync);
+    };
+  }, []);
   const stroke = belongsToCurrent ? mark.stroke : null;
 
   useEffect(() => {
@@ -744,6 +767,7 @@ export default function SoloPage() {
         {guiding && (
           <div
             ref={spotlightRef}
+            data-guide=""
             aria-hidden
             className="pointer-events-none absolute inset-0"
             style={{
@@ -751,17 +775,20 @@ export default function SoloPage() {
               // spot, over a blue wash with a soft hole punched in it. A hole
               // alone was too quiet to notice — the eye needs something to be
               // brighter, not merely less dimmed.
-              background: [
-                // Kept faint. A stronger glow fogged the one part of the
-                // picture the user is trying to look at, which is the opposite
-                // of what a spotlight is for; the definition comes from the
-                // wash outside it, not from brightening the target.
-                "radial-gradient(circle 200px at var(--x, 50%) var(--y, 50%)," +
-                  " rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.07) 45%, rgba(255,255,255,0) 80%)",
-                "radial-gradient(circle 260px at var(--x, 50%) var(--y, 50%)," +
-                  " rgba(37,99,235,0) 0%, rgba(37,99,235,0) 58%," +
-                  " rgba(37,99,235,0.24) 82%, rgba(37,99,235,0.24) 100%)",
-              ].join(", "),
+              background: focused
+                ? [
+                    // Kept faint. A stronger glow fogged the one part of the
+                    // picture the user is trying to look at, which is the
+                    // opposite of what a spotlight is for; the definition comes
+                    // from the wash outside it, not from brightening the target.
+                    "radial-gradient(circle 200px at var(--x, 50%) var(--y, 50%)," +
+                      " rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.07) 45%, rgba(255,255,255,0) 80%)",
+                    "radial-gradient(circle 260px at var(--x, 50%) var(--y, 50%)," +
+                      " rgba(37,99,235,0) 0%, rgba(37,99,235,0) 58%," +
+                      " rgba(37,99,235,0.24) 82%, rgba(37,99,235,0.24) 100%)",
+                  ].join(", ")
+                : "rgba(37,99,235,0.18)",
+              transition: "background 200ms ease",
             }}
           />
         )}
