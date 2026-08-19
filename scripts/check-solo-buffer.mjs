@@ -207,7 +207,18 @@ console.log("\n[タブを共有・フォーカス保持]");
   // Freezing is what makes a question answerable at all, but it is not a step
   // the user performs: touching the live picture does it, and the touch itself
   // becomes the mark.
+  // The picture is indistinguishable from the real application until something
+  // says otherwise, so a wash with a spotlight under the cursor asks for the
+  // first move — and gets out of the way once it has been made.
+  const spotlight = page.locator('div[aria-hidden][style*="radial-gradient"]');
+  check((await spotlight.count()) === 1, "指す前は青いカバーとスポットライトが出ている");
+
   const live = await page.locator("video").first().boundingBox();
+  await page.mouse.move(live.x + live.width / 3, live.y + live.height / 3);
+  await page.waitForTimeout(120);
+  const moved = await spotlight.evaluate((el) => el.style.getPropertyValue("--x"));
+  check(moved !== "", "スポットライトがマウスに追従する", `--x=${moved || "未設定"}`);
+
   await page.mouse.click(live.x + live.width / 2, live.y + live.height / 2);
   await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
   check(true, "ライブをクリックすると静止する（ボタンは無い）");
@@ -241,6 +252,7 @@ console.log("\n[タブを共有・フォーカス保持]");
     Math.abs(stillBox.height - live.height),
   );
   check(gap < 2, "静止しても画面の位置と大きさが変わらない", `ズレ ${gap.toFixed(1)}px`);
+  check((await spotlight.count()) === 0, "ピンが打たれたらカバーは消える");
 
   await page.getByRole("button", { name: "新しく聞く" }).click();
   await page.waitForTimeout(250);

@@ -78,6 +78,7 @@ export default function SoloPage() {
   );
 
   const stageRef = useRef<HTMLDivElement>(null);
+  const spotlightRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState<{ w: number; h: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const sourceRef = useRef<FrameSource | null>(null);
@@ -375,6 +376,21 @@ export default function SoloPage() {
   const [liveStroke, setLiveStroke] = useState<Point[] | null>(null);
   const pendingRef = useRef<Promise<Capture | null> | null>(null);
 
+  /**
+   * Moves the spotlight without re-rendering.
+   *
+   * A pointermove handler that sets React state would re-render the page on
+   * every mouse movement, over a video, for a purely decorative effect. The
+   * two custom properties are written straight to the node instead.
+   */
+  const trackSpotlight = useCallback((event: React.PointerEvent) => {
+    const element = spotlightRef.current;
+    if (!element) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    element.style.setProperty("--x", `${event.clientX - rect.left}px`);
+    element.style.setProperty("--y", `${event.clientY - rect.top}px`);
+  }, []);
+
   const pointOnLive = useCallback((event: React.PointerEvent): Point => {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
@@ -574,7 +590,10 @@ export default function SoloPage() {
           className="relative select-none"
           style={{ ...fitted, touchAction: "pinch-zoom" }}
         onPointerDown={showingLive ? onLiveDown : undefined}
-        onPointerMove={showingLive ? onLiveMove : undefined}
+        onPointerMove={(event) => {
+          trackSpotlight(event);
+          if (showingLive) onLiveMove(event);
+        }}
         onPointerUp={showingLive ? () => void onLiveUp() : undefined}
         onPointerCancel={showingLive ? () => setLiveStroke(null) : undefined}
       >
@@ -606,6 +625,33 @@ export default function SoloPage() {
         )}
 
         {showingLive && liveStroke && <Stroke points={liveStroke} />}
+
+        {/* Until something has been pointed at, the picture is indistinguishable
+            from the real application — somebody seeing this for the first time
+            has no way to know they are looking at a held-still copy that is
+            waiting to be asked about. A wash of blue says "this is not your
+            screen, it is a thing to point at", and the spotlight under the
+            cursor says what to do about it. Both go the moment a pin lands,
+            because by then the picture has explained itself. */}
+        {!pointer && (
+          <div
+            ref={spotlightRef}
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{
+              // Two layers: a warm-white glow that reads as light falling on the
+              // spot, over a blue wash with a soft hole punched in it. A hole
+              // alone was too quiet to notice — the eye needs something to be
+              // brighter, not merely less dimmed.
+              background: [
+                "radial-gradient(circle 210px at var(--x, 50%) var(--y, 50%)," +
+                  " rgba(255,255,255,0.16) 0%, rgba(255,255,255,0) 70%)",
+                "radial-gradient(circle 300px at var(--x, 50%) var(--y, 50%)," +
+                  " rgba(37,99,235,0) 0%, rgba(37,99,235,0) 28%, rgba(37,99,235,0.20) 88%)",
+              ].join(", "),
+            }}
+          />
+        )}
       </div>
       </div>
 
