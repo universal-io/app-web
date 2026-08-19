@@ -49,8 +49,8 @@
 | **[HANDOFF.md](HANDOFF.md)** | **次のセッションが最初に読む。いま何をすべきか。** セッションを始めるならここから |
 | **このREADME** | 何を作るか・どう動かすか・いま何が動いているか |
 | [docs/capabilities.md](docs/capabilities.md) | **やりたいこと・できること・できないこと。技術的な可否の正本。**新しい案を思いついたらまずここ |
-| [docs/solo-mode.md](docs/solo-mode.md) | ソロモード（1台で完結）の現在の設計。**主経路** |
-| [docs/two-device-mode.md](docs/two-device-mode.md) | 2台構成モードの現在の設計と、公開前に必ず戻ること |
+| [docs/solo-mode.md](docs/solo-mode.md) | 画面を読む本体（`/`・1台で完結）の現在の設計。**主経路** |
+| [docs/companion-mode.md](docs/companion-mode.md) | コンパニオン（スマホ・タブレットで見る）の設計と、公開前に必ず戻ること |
 | [docs/auth.md](docs/auth.md) | 認証とアカウント。**本家と同一のSupabaseプロジェクト**である理由と、外部設定 |
 | [docs/log.md](docs/log.md) | 時系列の記録。**間違えた記録**が主な価値。普段は読まない |
 
@@ -124,7 +124,7 @@ node scripts/measure-signature-drift.mjs       # 画面署名の実測
 ```
 
 ユーザーの Chrome を使うのでブラウザのダウンロードは不要。
-`/solo?debug` で現在のモード・取得経路・取得間隔が見える。
+`/?debug` で現在のモード・取得経路・取得間隔が見える。
 
 ---
 
@@ -132,8 +132,8 @@ node scripts/measure-signature-drift.mjs       # 画面署名の実測
 
 | 形態 | 状態 |
 |---|---|
-| **ソロモード**（`/solo`、1台で完結） | **主経路。**タブ共有ならこのページに留まったままライブで見て質問できる（[solo-mode.md](docs/solo-mode.md)） |
-| **2台構成**（`/` → QR → `/watch/[roomId]`） | 実機で動作。作業画面を奪わないのが強み（[two-device-mode.md](docs/two-device-mode.md)） |
+| **本体**（`/`、1台で完結） | **主経路。**タブ共有ならこのページに留まったままライブで見て質問できる（[solo-mode.md](docs/solo-mode.md)） |
+| **コンパニオン**（`/` の「スマホ・タブレットで見る」→ QR → `/companion/[roomId]`） | 別モードではなく同じ共有の第二の見口。作業画面を奪わないのが強み（[companion-mode.md](docs/companion-mode.md)） |
 | アンビエント（音声＋VADで常時待機） | 未着手 |
 
 ### ファミリー内の位置づけ
@@ -197,7 +197,7 @@ app-ios は「**サーバーが受け取ったバイトに、サーバーが返�
 
 ### 各モードの未確認事項
 
-[solo-mode.md §9](docs/solo-mode.md) と [two-device-mode.md §5](docs/two-device-mode.md) を参照。
+[solo-mode.md §9](docs/solo-mode.md) と [companion-mode.md §5](docs/companion-mode.md) を参照。
 
 ### Gateway側
 

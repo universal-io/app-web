@@ -44,7 +44,7 @@ const NEXT_KEY = "universal-io:after-sign-in";
 export function consumeNext(): string {
   const next = window.sessionStorage.getItem(NEXT_KEY);
   window.sessionStorage.removeItem(NEXT_KEY);
-  if (!next || !next.startsWith("/") || next.startsWith("//")) return "/solo";
+  if (!next || !next.startsWith("/") || next.startsWith("//")) return "/";
   return next;
 }
 

@@ -23,7 +23,7 @@ export function Join({ compact = false }: { compact?: boolean }) {
       setError("8文字のコードを入力してください。");
       return;
     }
-    router.push(`/watch/${code}`);
+    router.push(`/companion/${code}`);
   }
 
   return (

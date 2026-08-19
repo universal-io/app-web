@@ -12,7 +12,7 @@ import { chromium } from "playwright";
 
 const browser = await chromium.launch({ channel: "chrome" });
 const page = await browser.newPage();
-await page.goto("http://localhost:7380/solo", { waitUntil: "domcontentloaded" });
+await page.goto("http://localhost:7380/", { waitUntil: "domcontentloaded" });
 
 const results = await page.evaluate(async () => {
   const EDGE = 16;

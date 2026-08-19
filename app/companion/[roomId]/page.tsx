@@ -25,20 +25,20 @@ type Turn = { role: "user" | "assistant"; text: string };
  *
  * Nothing is ever asked about live video: whatever was pointed at has moved by
  * the time an answer arrives. Freezing makes the question one about a still
- * image (docs/two-device-mode.md §2).
+ * image (docs/companion-mode.md §2).
  */
-export default function WatchPage({ params }: { params: Promise<{ roomId: string }> }) {
+export default function CompanionPage({ params }: { params: Promise<{ roomId: string }> }) {
   const { roomId } = use(params);
   // The phone is the side that asks, so it is the side that spends the
   // allowance — it needs the account just as much as the machine sharing.
   return (
-    <RequireAccount next={`/watch/${roomId}`}>
-      {(session) => <Watch roomId={roomId} session={session} />}
+    <RequireAccount next={`/companion/${roomId}`}>
+      {(session) => <Companion roomId={roomId} session={session} />}
     </RequireAccount>
   );
 }
 
-function Watch({ roomId, session }: { roomId: string; session: Session }) {
+function Companion({ roomId, session }: { roomId: string; session: Session }) {
   const [connected, setConnected] = useState(false);
   const [capture, setCapture] = useState<Capture | null>(null);
   const [pointer, setPointer] = useState<Pointer | null>(null);

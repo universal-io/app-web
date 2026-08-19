@@ -179,7 +179,7 @@ async function open(surface, holdsFocus = false) {
   if (process.env.TRACE) page.on("requestfailed", (r) => console.log("  reqfail:", r.url(), r.failure()?.errorText));
   await stubGateway(page);
   await page.addInitScript(stub, { surface, holdsFocus });
-  await page.goto(`${BASE}/solo?debug`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/?debug`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "画面を選ぶ" }).click();
   return page;
 }
@@ -201,7 +201,7 @@ console.log("\n[サインインしていない]");
     sentToGoogle = true;
     return route.fulfill({ status: 200, contentType: "text/html", body: "<title>oauth</title>" });
   });
-  await page.goto(`${BASE}/solo`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
   check(
     (await page.getByRole("button", { name: "画面を選ぶ" }).count()) === 1,
     "サインインしていなくてもページは見える",
@@ -460,8 +460,9 @@ console.log("\n[タブを共有・フォーカス保持]");
 
   check(
     (await page.getByRole("button", { name: "共有をやめる" }).count()) === 1 &&
-      (await page.getByRole("button", { name: "いまの画面を取り直す" }).count()) === 1,
-    "操作は右上の小さなアイコン2つだけ",
+      (await page.getByRole("button", { name: "いまの画面を取り直す" }).count()) === 1 &&
+      (await page.getByRole("button", { name: "スマホ・タブレットで見る" }).count()) === 1,
+    "操作は右上の小さなアイコン3つだけ（取り直し・QR・停止）",
   );
   await page.getByRole("button", { name: "いまの画面を取り直す" }).click();
   await page.waitForTimeout(250);
