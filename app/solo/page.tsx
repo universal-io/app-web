@@ -79,6 +79,10 @@ export default function SoloPage() {
 
   const stageRef = useRef<HTMLDivElement>(null);
   const spotlightRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  /** null means the corner it starts in; a point means the user moved it. */
+  const [panelAt, setPanelAt] = useState<{ x: number; y: number } | null>(null);
+  const grabbedAt = useRef<{ dx: number; dy: number } | null>(null);
   const [stage, setStage] = useState<{ w: number; h: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const sourceRef = useRef<FrameSource | null>(null);
@@ -176,6 +180,7 @@ export default function SoloPage() {
     setTurns([]);
     setQuestion("");
     setReport(null);
+    setPanelAt(null);
   }, [stream]);
 
   const share = useCallback(async () => {
@@ -375,6 +380,53 @@ export default function SoloPage() {
    */
   const [liveStroke, setLiveStroke] = useState<Point[] | null>(null);
   const pendingRef = useRef<Promise<Capture | null> | null>(null);
+
+  /**
+   * Dragging the panel out of the way.
+   *
+   * Kept inside the window on every move rather than only at the end: a panel
+   * dropped past the edge cannot be dragged back, and there is no other way to
+   * reach it.
+   */
+  const clampPanel = useCallback((x: number, y: number) => {
+    const element = panelRef.current;
+    const width = element?.offsetWidth ?? 0;
+    const height = element?.offsetHeight ?? 0;
+    return {
+      x: Math.min(Math.max(x, 8), Math.max(8, window.innerWidth - width - 8)),
+      y: Math.min(Math.max(y, 8), Math.max(8, window.innerHeight - height - 8)),
+    };
+  }, []);
+
+  const onPanelDragStart = useCallback((event: React.PointerEvent) => {
+    if (!event.isPrimary || !panelRef.current) return;
+    const rect = panelRef.current.getBoundingClientRect();
+    grabbedAt.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    // Freeze it where it already is, so the first movement does not jump it
+    // from the corner it was anchored to.
+    setPanelAt(clampPanel(rect.left, rect.top));
+  }, [clampPanel]);
+
+  const onPanelDragMove = useCallback((event: React.PointerEvent) => {
+    const grabbed = grabbedAt.current;
+    if (!grabbed) return;
+    setPanelAt(clampPanel(event.clientX - grabbed.dx, event.clientY - grabbed.dy));
+  }, [clampPanel]);
+
+  const onPanelDragEnd = useCallback(() => {
+    grabbedAt.current = null;
+  }, []);
+
+  // A window that shrinks can strand the panel off screen, where nothing can
+  // reach it. Pull it back rather than leaving the user to reload.
+  useEffect(() => {
+    function onResize() {
+      setPanelAt((at) => (at ? clampPanel(at.x, at.y) : at));
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clampPanel]);
 
   /**
    * Moves the spotlight without re-rendering.
@@ -683,7 +735,7 @@ export default function SoloPage() {
       </div>
 
       {!showingLive && !currentCapture && (
-        <div className="shrink-0 px-6 pb-2 text-center">
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 px-6 text-center">
           {buffered ? (
             <>
               {/* The only thing this mode ever teaches, and it is shown once:
@@ -700,7 +752,7 @@ export default function SoloPage() {
       )}
 
       {buffered && screens.length > 1 && (
-        <div className="shrink-0 space-y-1 px-3 pb-1">
+        <div className="fixed bottom-4 left-4 z-30 max-w-[min(28rem,calc(100vw-28rem))] space-y-1 rounded-xl bg-neutral-900/80 p-2 text-white backdrop-blur">
           <p className="text-[11px] text-white/40">
             別の画面について聞くときは選んでください（新しい順・←→キーでも移動できます）
           </p>
@@ -721,20 +773,47 @@ export default function SoloPage() {
         </div>
       )}
 
-      <div className="shrink-0 space-y-2 bg-neutral-900/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
-        {error && <Notice tone="error">{error}</Notice>}
-        {answer && <AnswerPanel answer={answer.value} />}
-        {!answer && (
-          <p className="text-xs text-white/50">
-            分からないところをクリック、または囲んでください。そのまま質問を書いても聞けます。
-          </p>
-        )}
-        <QuestionInput
-          value={question}
-          onChange={setQuestion}
-          onSubmit={showingLive ? askAboutLive : ask}
-          busy={busy}
-        />
+      {/* The panel floats instead of taking a strip along the bottom, because
+          the bottom of a screenshot is part of the screenshot: a bar there
+          covers exactly the thing somebody may want to ask about. Bottom-right
+          is where people already expect a helper to sit, and it can be dragged
+          anywhere when it is the wrong place. */}
+      <div
+        ref={panelRef}
+        style={panelAt ? { left: panelAt.x, top: panelAt.y } : { right: 16, bottom: 16 }}
+        className="fixed z-30 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/10 bg-neutral-900/90 text-white shadow-2xl backdrop-blur"
+      >
+        <div
+          onPointerDown={onPanelDragStart}
+          onPointerMove={onPanelDragMove}
+          onPointerUp={onPanelDragEnd}
+          onPointerCancel={onPanelDragEnd}
+          className="flex cursor-grab items-center gap-2 px-3 py-2 active:cursor-grabbing"
+          style={{ touchAction: "none" }}
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4 text-white/40" fill="currentColor" aria-hidden>
+            <circle cx="9" cy="7" r="1.4" /><circle cx="15" cy="7" r="1.4" />
+            <circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" />
+            <circle cx="9" cy="17" r="1.4" /><circle cx="15" cy="17" r="1.4" />
+          </svg>
+          <span className="text-xs text-white/40">ドラッグで移動できます</span>
+        </div>
+
+        <div className="space-y-2 px-3 pb-3">
+          {error && <Notice tone="error">{error}</Notice>}
+          {answer && <AnswerPanel answer={answer.value} />}
+          {!answer && (
+            <p className="text-xs text-white/50">
+              分からないところをクリック、または囲んでください。そのまま質問を書いても聞けます。
+            </p>
+          )}
+          <QuestionInput
+            value={question}
+            onChange={setQuestion}
+            onSubmit={showingLive ? askAboutLive : ask}
+            busy={busy}
+          />
+        </div>
       </div>
     </div>
   );

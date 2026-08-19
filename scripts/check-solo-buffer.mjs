@@ -254,6 +254,32 @@ console.log("\n[タブを共有・フォーカス保持]");
   check(gap < 2, "静止しても画面の位置と大きさが変わらない", `ズレ ${gap.toFixed(1)}px`);
   check((await spotlight.count()) === 0, "ピンが打たれたらカバーは消える");
 
+  // The panel floats over the picture and must be movable, because wherever it
+  // sits by default is somewhere the user may need to look.
+  const handle = page.locator("text=ドラッグで移動できます");
+  const before = await handle.boundingBox();
+  await page.mouse.move(before.x + 40, before.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(before.x - 320, before.y - 220, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const after = await handle.boundingBox();
+  // The panel follows the grab point, so it lands offset by where it was held.
+  check(
+    Math.abs(after.x - (before.x - 360)) < 12 && Math.abs(after.y - (before.y - 228)) < 12,
+    "質問パネルをドラッグで動かせる",
+    `${Math.round(before.x)},${Math.round(before.y)} → ${Math.round(after.x)},${Math.round(after.y)}`,
+  );
+
+  // Dropped past the edge it could never be retrieved, so it is held inside.
+  await page.mouse.move(after.x + 40, after.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(-500, -500, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const clamped = await handle.boundingBox();
+  check(clamped.x >= 0 && clamped.y >= 0, "画面の外には出せない", `${Math.round(clamped.x)},${Math.round(clamped.y)}`);
+
   check(
     (await page.getByRole("button", { name: "共有をやめる" }).count()) === 1 &&
       (await page.getByRole("button", { name: "いまの画面を取り直す" }).count()) === 1,
