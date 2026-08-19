@@ -10,6 +10,24 @@
 
 ## 2026-08-19 — Googleサインインを必須にした
 
+### 分かったこと: 認証のGCPは別のGoogleアカウントにあった
+
+OAuthクライアントは `whatifepxyz@gmail.com` のプロジェクト `899703844772` にあった。
+探すのに時間がかかったので、**READMEの「アカウントと外部サービス」節を作って正本にした。**
+
+遠回りの原因は2つ。1つは `matsumotokaya@gmail.com` の `My First Project` に
+`universal-io` という**Gemini APIキー**があり、それを認証情報だと思ったこと
+（Google Cloud が「認証情報」に両方を並べている）。もう1つは、私が
+「My First Project にOAuthクライアントが無い」から「どこにも無い」と一般化し、
+**Googleサインインは一度も設定されていないと断言してしまった**こと。
+実際には有効で毎回使われていた。Supabaseを見れば決まると自分で言っておきながら、
+その前に結論を書いた。
+
+**Client ID の先頭の数字がGCPのプロジェクト番号**で、これが分かれば一発で辿れる
+（`899703844772-...` → `console.cloud.google.com/auth/clients?project=899703844772`）。
+権限が無いアカウントでは `resourcemanager.projects.get` が403になり、
+**プロジェクトの存在すら見えない**ので「無い」と誤認しやすい。
+
 - 匿名サインインを廃止。**1回の質問がモデル呼び出し1回で実費が出る**ため、
   誰が開いたか分からないまま使わせる形は費用が青天井になる
 - 調査で分かった一番大きいこと: **app-web・api-gateway・app-mac は同一の Supabase

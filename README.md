@@ -15,6 +15,30 @@
 
 ---
 
+## 🔑 アカウントと外部サービス（毎回忘れるので最初に読む）
+
+**このプロダクトの外部設定は、複数のGoogleアカウントに散っている。**
+探し始める前にここを見ること。一度、OAuthクライアントを別プロジェクトで
+探し回って見つけられなかった。
+
+| 何 | どこ | 備考 |
+|---|---|---|
+| **Google認証（OAuth）のGCP** | **`whatifepxyz@gmail.com`** | ここ以外のアカウントでは**プロジェクトが存在すること自体が見えない**（403） |
+| ↳ プロジェクト番号 | `899703844772` | `https://console.cloud.google.com/auth/clients?project=899703844772` |
+| ↳ OAuthクライアント名 | `Supabase Auth Client` | Client ID は `899703844772-akc49a6icvjt6q7q44a9iqm6g80gjog4.apps.googleusercontent.com`（公開値） |
+| ↳ OAuth同意画面 | 同じプロジェクト内 | ユーザーに見えるアプリ名はここで設定する |
+| **Gemini APIキー** | `matsumotokaya@gmail.com` の `My First Project` | 認証とは無関係。Gateway の `GEMINI_API_KEY`。**「認証情報」に並んでいるが人のログインには使っていない** |
+| **Supabase** | organization `whatif-ep` / project `bomb-squad` | ref は `.env.local` 参照。app-web・api-gateway・app-mac が共有 |
+| **顧客向け問い合わせ先** | **`info@universal-io.com`** | 届け先は `matsumotokaya@gmail.com` |
+| **Vercel（app-web）** | プロジェクト `universal-io-app-web` | |
+
+**Client Secret は Google 側で再表示できない。** すでに Supabase に入っているので、
+紛失したら新しいシークレットを追加してローテーションする。
+
+**6か月使われないOAuthクライアントは削除対象になる**（Googleの通知あり、削除後30日は復元可）。
+
+---
+
 ## ドキュメント
 
 **すべてのドキュメントはここから辿れる。ここに無いものは存在しないか、

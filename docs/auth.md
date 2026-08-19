@@ -75,8 +75,35 @@ Gatewayも最初のリクエストで遅延プロビジョニングするが、*
 
 ## 6. 外部設定（ダッシュボード側。コードでは変えられない）
 
-**app-web のURLは、まだどちらにも登録されていない。** 登録するまでGoogleサインインは
-リダイレクトで失敗する。
+### 🔑 どのアカウントで開くか
+
+**Google認証のGCPプロジェクトは `whatifepxyz@gmail.com` にある。**
+他のアカウントでは**プロジェクトが存在すること自体が見えない**（`resourcemanager.projects.get`
+が403になる）。README の「アカウントと外部サービス」が正本。
+
+```
+https://console.cloud.google.com/auth/clients?project=899703844772
+```
+
+クライアント名は `Supabase Auth Client`。同じプロジェクトの中に**OAuth同意画面**もある
+（ユーザーに見えるアプリ名はそこで設定する。別プロジェクトで同意画面を整えても
+何も起きない）。
+
+**`matsumotokaya@gmail.com` の `My First Project` にある `universal-io` は
+Gemini のAPIキーであって、認証とは無関係。** Google Cloud が「認証情報」という同じ
+見出しに両方を並べているだけで、方向が逆（機械が機械を認証する／人がアプリに認証される）。
+
+### 現状の登録内容と、足りないもの
+
+承認済みのJavaScript生成元は次の3つしか入っていない。
+
+```
+http://localhost:3000
+http://127.0.0.1:3000
+https://bombsquad.me          ← レガシー
+```
+
+**app-web も `universal-io.com` も入っていない。** 足すもの:
 
 ### Supabase → Authentication → URL Configuration → Redirect URLs
 
@@ -87,18 +114,24 @@ Gatewayも最初のリクエストで遅延プロビジョニングするが、*
 | `https://app.universal-io.com/auth/callback` | 独自ドメインへ移したとき |
 | `universal-io://auth/callback` | Mac版（既存） |
 
-### Google Cloud → OAuth クライアント
+### Google Cloud → OAuth クライアント（`Supabase Auth Client`）
 
 **承認済みのリダイレクトURI は Supabase のコールバック1つだけ**でよい。
-各アプリのURLではない。
+各アプリのURLではない。すでに設定済み。
 
 ```
 https://skcsbcyivjcvevxntvqa.supabase.co/auth/v1/callback
 ```
 
-**承認済みのJavaScript生成元**には、サインインを開始するページのオリジンを並べる:
-`http://localhost:7380`、app-web の本番オリジン、`https://universal-io.com`、
-`http://localhost:3000`（api-gateway 自身の `/auth` ページ）。
+**承認済みのJavaScript生成元**に足す（サインインを開始するページのオリジン）:
+
+```
+http://localhost:7380                                              ← app-web ローカル
+https://universal-io-app-web-kaya-matsumotos-projects.vercel.app   ← app-web 本番
+https://universal-io.com                                           ← 製品サイト。未登録
+```
+
+Client ID と Secret は変わらないので、**追加するだけならMac版への影響は無い**。
 
 > **app-web の開発ポートは 7380 であり、3000 ではない。**
 > `api-gateway/docs/supabase-setup.md` の "Current web values" 節は
