@@ -230,13 +230,26 @@ console.log("\n[タブを共有・フォーカス保持]");
   await page.waitForTimeout(250);
   check((await page.locator('img[alt="共有された画面"]').count()) === 0, "「ライブに戻る」で静止画が消える");
 
-  // Leaving and returning must not disturb a watched tab: it never went stale.
+  // A ring drawn over moving video must mean what it means on a still.
+  await page.mouse.move(live.x + live.width * 0.3, live.y + live.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(live.x + live.width * 0.6, live.y + live.height * 0.35, { steps: 6 });
+  await page.mouse.move(live.x + live.width * 0.6, live.y + live.height * 0.6, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
+  check(
+    (await page.locator("svg polyline").count()) === 1 &&
+      (await page.locator("div.rounded-full.border-cyan-400").count()) === 0,
+    "ライブ上でなぞると丸囲みになる（点ではない）",
+  );
+
+  // Going to the shared tab and back must show how it looks now.
   await page.evaluate(() => window.__setAway(true));
-  await page.waitForTimeout(1600);
+  await page.waitForTimeout(1200);
   await page.evaluate(() => window.__setAway(false));
   await page.waitForTimeout(400);
   check((await strip(page)) === 0, "離れて戻っても候補は作られない");
-  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "離れて戻ってもライブのまま");
+  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "戻ってくるとライブに復帰している");
   await page.close();
 }
 

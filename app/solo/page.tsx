@@ -24,7 +24,7 @@ import {
 import { withPointerMark } from "@/lib/marker";
 import { accessToken, ensureSession, SessionError } from "@/lib/session";
 import { Notice, Shell } from "@/app/ui";
-import { Snapshot, type Point } from "@/app/snapshot";
+import { markFrom, Snapshot, Stroke, type Point } from "@/app/snapshot";
 import { AnswerPanel, QuestionInput } from "@/app/ask";
 
 type Turn = { role: "user" | "assistant"; text: string };
@@ -71,6 +71,7 @@ export default function SoloPage() {
   const [question, setQuestion] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
+  const [videoSize, setVideoSize] = useState<{ w: number; h: number } | null>(null);
   const [report, setReport] = useState<RecentScreensReport | null>(null);
   const [debug] = useState(
     () => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug"),
@@ -132,6 +133,7 @@ export default function SoloPage() {
     stream?.getTracks().forEach((track) => track.stop());
     setStream(null);
     setKeptFocus(false);
+    setVideoSize(null);
     setScreens([]);
     setIndex(0);
     setFrozen(null);
@@ -241,7 +243,15 @@ export default function SoloPage() {
     if (!stream) return;
     function onReturn() {
       if (document.hidden) return;
-      if (watched) return;
+      if (watched) {
+        // They went to the shared tab, did something, and came back — so what
+        // they want to see is how it looks now, not the still they left behind.
+        // The exchange survives, because "then what?" is the usual next thing.
+        setFrozen(null);
+        setMark(null);
+        setAnswer(null);
+        return;
+      }
       if (buffered) {
         setIndex(0);
       } else {
@@ -309,45 +319,75 @@ export default function SoloPage() {
    * state of that page, and carrying it forward is how a model ends up
    * confidently describing something that has since scrolled away.
    */
-  const freeze = useCallback(async (at: Point | null): Promise<Capture | null> => {
+  const freeze = useCallback(async (): Promise<Capture | null> => {
     setError(null);
     const capture = await grabNow();
-    if (!capture) return null;
-    setFrozen(capture);
-    setMark(at ? { capture, pointer: { kind: "point", point: at }, stroke: null } : null);
-    setAnswer(null);
-    setTurns([]);
+    if (capture) setFrozen(capture);
     return capture;
   }, [grabNow]);
 
   /**
-   * Where on the shared surface a click landed.
+   * Drawing on the moving picture.
    *
-   * `object-contain` letterboxes the video, so the element's box is not the
-   * picture's box. Reading the position off the element directly would put
-   * every mark off by the height of the bars — the exact class of quiet
-   * coordinate error this project has paid for before.
+   * The still is taken when the gesture *starts*, not when it ends, because the
+   * thing being pointed at is the thing that was there when the finger went
+   * down. The gesture itself keeps running over the live video and means
+   * exactly what it means on a still — one finger, one stroke, tap or ring —
+   * so nothing new has to be learnt for the live view.
+   *
+   * Nobody is asked to freeze anything. The user is both the watched and the
+   * watching here, so the screen only moves when they move it, and the moment
+   * worth capturing is simply the moment they act.
    */
-  const pointOnLive = useCallback((event: React.PointerEvent<HTMLVideoElement>): Point | null => {
-    const video = event.currentTarget;
-    if (!video.videoWidth || !video.videoHeight) return null;
-    const rect = video.getBoundingClientRect();
-    const scale = Math.min(rect.width / video.videoWidth, rect.height / video.videoHeight);
-    const width = video.videoWidth * scale;
-    const height = video.videoHeight * scale;
-    const x = (event.clientX - (rect.left + (rect.width - width) / 2)) / width;
-    const y = (event.clientY - (rect.top + (rect.height - height) / 2)) / height;
-    // Outside the picture is the letterbox, which is not part of the screen
-    // anybody means to point at.
-    return x < 0 || x > 1 || y < 0 || y > 1 ? null : { x, y };
+  const [liveStroke, setLiveStroke] = useState<Point[] | null>(null);
+  const pendingRef = useRef<Promise<Capture | null> | null>(null);
+
+  const pointOnLive = useCallback((event: React.PointerEvent): Point => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1),
+      y: Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1),
+    };
   }, []);
 
+  const onLiveDown = useCallback((event: React.PointerEvent) => {
+    // Two fingers is the browser pinching to zoom, not somebody drawing.
+    if (!event.isPrimary) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pendingRef.current = grabNow();
+    setLiveStroke([pointOnLive(event)]);
+  }, [grabNow, pointOnLive, setLiveStroke]);
+
+  const onLiveMove = useCallback((event: React.PointerEvent) => {
+    if (!event.isPrimary) return;
+    const at = pointOnLive(event);
+    setLiveStroke((previous) => (previous ? [...previous, at] : previous));
+  }, [pointOnLive, setLiveStroke]);
+
+  const onLiveUp = useCallback(async () => {
+    const drawn = liveStroke;
+    setLiveStroke(null);
+    if (!drawn || drawn.length === 0) return;
+    const capture = await (pendingRef.current ?? Promise.resolve(null));
+    pendingRef.current = null;
+    if (!capture) return;
+    const mark = markFrom(drawn);
+    setFrozen(capture);
+    setMark({ capture, pointer: mark.pointer, stroke: mark.stroke });
+    // Pointing somewhere new is a new subject, on live video as on a still.
+    setAnswer(null);
+    setTurns([]);
+  }, [liveStroke, setLiveStroke]);
+
+  /**
+   * Back to the moving picture. The exchange is kept: somebody who operated the
+   * shared tab and came back to ask "then what?" is still on the same subject,
+   * and it is a new gesture — not a new view — that starts a new one.
+   */
   const backToLive = useCallback(() => {
     setFrozen(null);
     setMark(null);
     setAnswer(null);
-    setTurns([]);
-    setQuestion("");
   }, []);
 
   const newTopic = useCallback(() => {
@@ -403,7 +443,7 @@ export default function SoloPage() {
    */
   const askAboutLive = useCallback(async () => {
     if (!question.trim()) return;
-    const capture = await freeze(null);
+    const capture = await freeze();
     if (capture) await ask(capture);
   }, [question, freeze, ask]);
 
@@ -499,18 +539,50 @@ export default function SoloPage() {
           ImageCapture it is the one thing still decoding frames, and a video
           that is not displayed is not guaranteed to (docs/log.md 2026-08-15). */}
       <div className={showingLive ? "relative min-h-0 flex-1" : "relative min-h-0 flex-1 overflow-auto overscroll-contain"}>
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          onPointerDown={showingLive ? (event) => void freeze(pointOnLive(event)) : undefined}
+        {/* One video element for the whole share, in one position in the tree.
+            Putting a second one in the other branch of a ternary looks harmless
+            and is not: React unmounts and remounts it, the new element has no
+            srcObject, and the live view comes back blank. */}
+        <div
           className={
             showingLive
-              ? "h-full w-full cursor-crosshair object-contain"
-              : "pointer-events-none absolute bottom-2 left-2 z-10 w-12 rounded border border-white/15 opacity-30"
+              ? "flex h-full w-full items-center justify-center"
+              : "pointer-events-none absolute bottom-2 left-2 z-10"
           }
-        />
+        >
+          <div
+            className={showingLive ? "relative max-h-full max-w-full select-none" : "relative"}
+            // The box is given the picture's shape, so the element's edges and
+            // the picture's edges are the same thing. Letterboxing inside the
+            // element would mean every mark had to subtract the bars first —
+            // one more place for a coordinate to go quietly wrong.
+            style={
+              showingLive && videoSize
+                ? { aspectRatio: `${videoSize.w} / ${videoSize.h}`, touchAction: "pinch-zoom" }
+                : undefined
+            }
+            onPointerDown={showingLive ? onLiveDown : undefined}
+            onPointerMove={showingLive ? onLiveMove : undefined}
+            onPointerUp={showingLive ? () => void onLiveUp() : undefined}
+            onPointerCancel={showingLive ? () => setLiveStroke(null) : undefined}
+          >
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              onLoadedMetadata={(event) =>
+                setVideoSize({ w: event.currentTarget.videoWidth, h: event.currentTarget.videoHeight })
+              }
+              className={
+                showingLive
+                  ? "block h-full w-full cursor-crosshair"
+                  : "block w-12 rounded border border-white/15 opacity-30"
+              }
+            />
+            {showingLive && liveStroke && <Stroke points={liveStroke} />}
+          </div>
+        </div>
 
         {!showingLive && currentCapture && (
           <Snapshot
@@ -546,7 +618,7 @@ export default function SoloPage() {
         <div className="shrink-0 space-y-2 bg-neutral-900/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
           {error && <Notice tone="error">{error}</Notice>}
           <p className="text-xs text-white/50">
-            共有したタブがここに映っています。分からないところをクリックするか、そのまま質問してください。
+            分からないところをクリック、または囲んでください。そのまま質問を書いても聞けます。
           </p>
           <QuestionInput value={question} onChange={setQuestion} onSubmit={askAboutLive} busy={busy} />
         </div>

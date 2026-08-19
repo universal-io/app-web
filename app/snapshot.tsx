@@ -62,12 +62,8 @@ export function Snapshot({ capture, pointer, annotations, onPointer, stroke }: P
 
   function onPointerUp() {
     if (!drawing || drawing.length === 0) return;
-    const box = boundsOf(drawing);
-    if (Math.max(box.w, box.h) < RING_THRESHOLD) {
-      onPointer({ kind: "point", point: drawing[0] }, null);
-    } else {
-      onPointer({ kind: "region", region: box }, drawing);
-    }
+    const mark = markFrom(drawing);
+    onPointer(mark.pointer, mark.stroke);
     setDrawing(null);
   }
 
@@ -88,20 +84,7 @@ export function Snapshot({ capture, pointer, annotations, onPointer, stroke }: P
         <img src={capture.dataURL} alt="共有された画面" className="block w-full" draggable={false} />
 
         {/* The stroke as drawn, not the rectangle derived from it. */}
-        {live && live.length > 1 && (
-          <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
-            <polyline
-              points={live.map((p) => `${p.x},${p.y}`).join(" ")}
-              fill="none"
-              stroke="#22d3ee"
-              strokeWidth={0.006}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-              style={{ strokeWidth: 3 }}
-            />
-          </svg>
-        )}
+        {live && <Stroke points={live} />}
 
         {!drawing && pointer?.kind === "point" && (
           <div
@@ -130,6 +113,38 @@ export function Snapshot({ capture, pointer, annotations, onPointer, stroke }: P
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * What a finished stroke means: one gesture, one intent.
+ *
+ * Shared with the live view, where the same stroke is drawn over moving video
+ * rather than a still. Reading it in two places would be two chances for a tap
+ * and a ring to start meaning different things depending on what was underneath.
+ */
+export function markFrom(points: Point[]): { pointer: Pointer; stroke: Point[] | null } {
+  const box = boundsOf(points);
+  return Math.max(box.w, box.h) < RING_THRESHOLD
+    ? { pointer: { kind: "point", point: points[0] }, stroke: null }
+    : { pointer: { kind: "region", region: box }, stroke: points };
+}
+
+/** The stroke as drawn, over whatever it was drawn on. */
+export function Stroke({ points }: { points: Point[] }) {
+  if (points.length < 2) return null;
+  return (
+    <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
+      <polyline
+        points={points.map((p) => `${p.x},${p.y}`).join(" ")}
+        fill="none"
+        stroke="#22d3ee"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+        style={{ strokeWidth: 3 }}
+      />
+    </svg>
   );
 }
 
