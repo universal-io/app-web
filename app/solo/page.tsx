@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import type { Session } from "@supabase/supabase-js";
 import { askVision, GatewayError, type Pointer, type VisionSuccess } from "@/lib/gateway";
 import {
   createFrameSource,
@@ -22,8 +21,8 @@ import {
   type RecentScreensReport,
 } from "@/lib/recent-screens";
 import { withPointerMark } from "@/lib/marker";
-import { accessToken } from "@/lib/session";
-import { RequireAccount } from "@/app/auth";
+import { accessToken, ensureProvisioned, signInWithGoogle, SessionError } from "@/lib/session";
+import { Account, useAccount } from "@/app/auth";
 import { Notice, Shell, useMounted } from "@/app/ui";
 import { markFrom, Snapshot, Stroke, type Point } from "@/app/snapshot";
 import { AnswerPanel, QuestionInput } from "@/app/ask";
@@ -56,12 +55,36 @@ const SPOT_MASK =
  * putting the right one of those in front of them.
  */
 export default function SoloPage() {
-  return <RequireAccount next="/solo">{(session) => <Solo session={session} />}</RequireAccount>;
+  return <Solo />;
 }
 
-function Solo({ session }: { session: Session }) {
+function Solo() {
+  /**
+   * Signing in is asked for at the moment it is needed, not at the door.
+   *
+   * The page itself costs nothing to look at — only a question costs a model
+   * call — so the sign-in belongs on the first action, where "why am I being
+   * asked" answers itself. Somebody sent this link while stuck should see what
+   * the page is before being sent to Google.
+   */
+  const { ready: accountReady, session, error: accountError } = useAccount();
+  const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mounted = useMounted();
+
+  // The account has to exist before the first question, whichever way the
+  // session arrived — fresh from the callback, or from storage.
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    ensureProvisioned(session).catch((caught: unknown) => {
+      if (cancelled) return;
+      setError(caught instanceof Error ? caught.message : "アカウントを準備できませんでした。");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [surface, setSurface] = useState<DisplaySurface>("monitor");
@@ -206,6 +229,19 @@ function Solo({ session }: { session: Session }) {
 
   const share = useCallback(async () => {
     setError(null);
+    if (!accountReady) return;
+    // No session yet: this click becomes the trip to Google, and the callback
+    // brings the user back here to press the same button signed in.
+    if (!session) {
+      setSigningIn(true);
+      try {
+        await signInWithGoogle("/solo");
+      } catch (caught) {
+        setError(caught instanceof SessionError ? caught.message : "ログインを開始できませんでした。");
+        setSigningIn(false);
+      }
+      return;
+    }
     let share: Share;
     try {
       // A tab is the surface this mode is built around, because a tab is the
@@ -220,7 +256,7 @@ function Solo({ session }: { session: Session }) {
     setSurface(share.surface);
     setKeptFocus(share.keptFocus);
     setStream(share.stream);
-  }, []);
+  }, [accountReady, session]);
 
   // Stopping from the browser's own bar has to end things here too, or the page
   // goes on offering screens from a share that no longer exists.
@@ -368,7 +404,7 @@ function Solo({ session }: { session: Session }) {
     history: Turn[];
   }) => {
     if (!session) {
-      setError("セッションがありません。ページを再読み込みしてください。");
+      setError("ログインが切れています。もう一度サインインしてください。");
       return;
     }
     const asked = input.question.trim();
@@ -649,13 +685,23 @@ function Solo({ session }: { session: Session }) {
             選んだ画面がこのページに映ります。分からない場所を指して質問できます。
           </p>
         </header>
+        {accountError && <Notice tone="error">{accountError}</Notice>}
         {error && <Notice tone="error">{error}</Notice>}
         <button
           onClick={share}
-          className="self-start rounded-lg bg-blue-600 px-4 py-3 text-base font-medium text-white"
+          disabled={!accountReady || signingIn}
+          className="self-start rounded-lg bg-blue-600 px-4 py-3 text-base font-medium text-white disabled:opacity-50"
         >
-          画面を選ぶ
+          {signingIn ? "Googleに移動しています…" : "画面を選ぶ"}
         </button>
+        {/* Being sent to Google by a button that says nothing about it feels
+            like a malfunction; one sentence ahead of time makes it the plan. */}
+        {accountReady && !session && (
+          <p className="text-sm text-slate-500">
+            質問にはGoogleサインインが必要です（Mac版と同じアカウント）。
+            ボタンを押すとサインインしてから戻ってきます。
+          </p>
+        )}
         {/* The picker's three panes are the browser's, not ours: they cannot be
             reordered or removed, and Chrome 151 ignores which one we ask it to
             open on. So the difference between them is explained here instead,
@@ -673,6 +719,7 @@ function Solo({ session }: { session: Session }) {
         <Link href="/" className="self-start text-sm text-slate-500 underline">
           スマホやタブレットから質問する（2台で使う）
         </Link>
+        <Account />
       </Shell>
     );
   }

@@ -188,18 +188,32 @@ const panel = (page) => page.locator("div.font-mono").first().innerText();
 const strip = (page) => page.locator("img.h-12").count();
 
 // ── サインインしていない場合 ──────────────────────────────
+// The page is free to look at — only a question costs anything — so there is
+// no wall. The sign-in happens on the first action: pressing 画面を選ぶ with
+// no session is the trip to Google, not the picker.
 console.log("\n[サインインしていない]");
 {
   const page = await context.newPage();
+  // No session is planted on this page, and this scenario runs before any
+  // signed-in one so the context's localStorage is still clean.
+  let sentToGoogle = false;
+  await page.route("**/auth/v1/authorize*", (route) => {
+    sentToGoogle = true;
+    return route.fulfill({ status: 200, contentType: "text/html", body: "<title>oauth</title>" });
+  });
   await page.goto(`${BASE}/solo`, { waitUntil: "networkidle" });
   check(
-    (await page.getByRole("button", { name: /Googleでサインイン/ }).count()) === 1,
-    "サインイン画面が出る",
+    (await page.getByRole("button", { name: "画面を選ぶ" }).count()) === 1,
+    "サインインしていなくてもページは見える",
   );
   check(
-    (await page.getByRole("button", { name: "画面を選ぶ" }).count()) === 0,
-    "サインインせずに画面共有には進めない",
+    await page.locator("text=質問にはGoogleサインインが必要です").isVisible(),
+    "サインインが要ることが先に書いてある",
   );
+  await page.getByRole("button", { name: "画面を選ぶ" }).click();
+  await page.waitForURL("**/auth/v1/authorize*", { timeout: 5000 });
+  check(sentToGoogle, "ボタンがGoogleサインインへ連れて行く");
+  check((await page.locator("video").count()) === 0, "サインインせずに画面共有は始まらない");
   await page.close();
 }
 

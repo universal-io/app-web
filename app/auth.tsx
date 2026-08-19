@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabaseBrowserClient } from "@/lib/supabase";
-import { currentSession, ensureProvisioned, signInWithGoogle, SessionError } from "@/lib/session";
+import { currentSession, ensureProvisioned, signedIn, signInWithGoogle, signOut, SessionError } from "@/lib/session";
 import { Notice, Shell } from "@/app/ui";
 
 /**
@@ -34,7 +34,9 @@ export function useAccount(): { ready: boolean; session: Session | null; error: 
       });
 
     const { data } = supabaseBrowserClient().auth.onAuthStateChange((_event, next) => {
-      setSession(next);
+      // The same judgement as currentSession(): a leftover anonymous session
+      // arriving by this path must not become "signed in" either.
+      setSession(signedIn(next));
     });
     return () => {
       cancelled = true;
@@ -148,4 +150,33 @@ export function RequireAccount({
     );
   }
   return <>{children(session)}</>;
+}
+
+/**
+ * Which account this is, and the way out of it.
+ *
+ * Small and at the bottom: it is not what anybody came for, but a signed-in
+ * product that will not say who you are, on a machine that may be shared, is
+ * asking to be distrusted.
+ */
+export function Account() {
+  const { session } = useAccount();
+  const [busy, setBusy] = useState(false);
+  if (!session) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-6 text-xs text-slate-500 dark:border-slate-700">
+      <span>{session.user.email ?? "サインイン済み"}</span>
+      <button
+        onClick={() => {
+          setBusy(true);
+          void signOut();
+        }}
+        disabled={busy}
+        className="underline disabled:opacity-50"
+      >
+        ログアウト
+      </button>
+      <span className="text-slate-400">Mac版と同じアカウントです</span>
+    </div>
+  );
 }

@@ -11,8 +11,7 @@ import {
   ScreenShareError,
   startScreenShare,
 } from "@/lib/screen-share";
-import { signOut } from "@/lib/session";
-import { RequireAccount, useAccount } from "@/app/auth";
+import { Account, RequireAccount } from "@/app/auth";
 import { Notice, Shell, useMounted } from "@/app/ui";
 import { Join } from "@/app/join";
 
@@ -214,35 +213,6 @@ function Share() {
         </div>
       )}
     </Shell>
-  );
-}
-
-/**
- * Which account this is, and the way out of it.
- *
- * Small and at the bottom: it is not what anybody came for, but a signed-in
- * product that will not say who you are, on a machine that may be shared, is
- * asking to be distrusted.
- */
-function Account() {
-  const { session } = useAccount();
-  const [busy, setBusy] = useState(false);
-  if (!session) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-6 text-xs text-slate-500 dark:border-slate-700">
-      <span>{session.user.email ?? "サインイン済み"}</span>
-      <button
-        onClick={() => {
-          setBusy(true);
-          void signOut();
-        }}
-        disabled={busy}
-        className="underline disabled:opacity-50"
-      >
-        サインアウト
-      </button>
-      <span className="text-slate-400">Mac版と同じアカウントです</span>
-    </div>
   );
 }
 

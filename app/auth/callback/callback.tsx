@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabaseBrowserClient } from "@/lib/supabase";
-import { currentSession, ensureProvisioned } from "@/lib/session";
+import { consumeNext, currentSession, ensureProvisioned } from "@/lib/session";
 import { Notice, Shell } from "@/app/ui";
 
 /**
@@ -42,7 +42,10 @@ export function AuthCallback() {
 
       await ensureProvisioned(session);
       if (cancelled) return;
-      router.replace(safeNext(params.get("next")));
+      // The destination was stored by signInWithGoogle, not carried on the
+      // URL: a query parameter on redirect_to makes Supabase's allowlist not
+      // match it (lib/session.ts).
+      router.replace(consumeNext());
     }
 
     finish().catch((caught: unknown) => {
@@ -68,9 +71,3 @@ export function AuthCallback() {
   return <Shell><p className="text-slate-500">ログインを確認しています…</p></Shell>;
 }
 
-/** An open redirect would let a link sign somebody in and then drop them on
- * another site wearing this one's trust, so only paths within this app pass. */
-function safeNext(next: string | null): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) return "/solo";
-  return next;
-}

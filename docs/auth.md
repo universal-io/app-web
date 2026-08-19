@@ -33,23 +33,35 @@ Mac版とweb版が別人になる。
 ## 3. 流れ
 
 ```
-/  /solo  /watch/[roomId]     ← すべて RequireAccount の内側
-      │ 未サインイン
+/  /watch/[roomId]            ← RequireAccount の内側（先に壁）
+/solo                         ← ページは見える。「画面を選ぶ」を押した時に
+      │ 未サインイン             サインインへ（見るのは無料、質問だけが実費）
       ▼
-   SignIn（Googleボタンだけ）
-      │ signInWithOAuth（prompt=select_account）
+   signInWithOAuth（prompt=select_account。行き先は sessionStorage で運ぶ）
       ▼
-   Google → Supabase → /auth/callback?next=…
+   Google → Supabase → /auth/callback
       │ exchangeCodeForSession
       │ bs_initialize_current_user   ← §4
       ▼
-   next へ戻す（安全な内部パスのみ。既定は /solo）
+   sessionStorage の行き先へ戻す（安全な内部パスのみ。既定は /solo）
 ```
 
+- **`redirect_to` にクエリパラメータを付けない。** Supabase は `redirect_to` を
+  Redirect URLs と**文字列全体のglob**で照合し、一致しなければ黙って **Site URL**
+  （このプロジェクトでは `api.universal-io.com` — Mac版の着地点）へ落とす。
+  かつて `?next=…` を付けていたため、**全入り口からのサインインが別オリジンに
+  流れ、app-web にはセッションが残らなかった**。行き先は sessionStorage で運ぶ
+  （`lib/session.ts` の `consumeNext`）
 - **`prompt=select_account`** を付ける。アカウントを複数持つ人は、付けないと
   Googleが選んだ側で黙ってサインインしてしまう（app-mac も同じ指定をしている）
-- **`next` は内部パスだけ通す。** 外部URLを許すと、サインインさせてから
+- **行き先は内部パスだけ通す。** 外部URLを許すと、サインインさせてから
   別サイトへ落とす導線になり、このサイトの信用を貸すことになる
+- **`/solo` は壁ではなくボタンでサインインする。** ページを見るだけなら費用は
+  発生しないので、サインインは最初の行動（画面を選ぶ）の上に置く。リンクを
+  受け取って開いた人が、Googleに送られる前に「これが何か」を見られる
+- **残っていた匿名セッションは「サインイン済み」と見なさない。** 匿名廃止以前に
+  作られたセッションはブラウザに残って更新され続ける。判定は `signedIn()` の
+  1箇所で行い、検出したら自動でサインアウトして掃除する
 - **スマホ側（`/watch`）にもサインインが要る。** 質問するのは見る側の端末で、
   枠を消費するのもそちら
 
@@ -135,9 +147,9 @@ Client ID と Secret は変わらないので、**追加するだけならMac版
 
 ## 7. 未確認（次にやること）
 
-1. **🔴 実機でのサインイン通しテスト。** 外部設定は 2026-08-20 に済んだが、
-   `/solo` で実際にGoogleサインインしてから画面共有・質問まで到達できたかは
-   **まだ確認していない**。ここが次の最初の一歩
+1. **🔴 サインイン済みでの質問到達。** サインイン自体は実機で通った（2026-08-20）。
+   残るは**Googleアカウントのトークンで Gateway が通るか**（テナント解決・
+   使用量計上）。HANDOFF の最初の一歩
 2. **Supabaseの「Allow anonymous sign-ins」を無効にする。** app-web はもう
    匿名を使っていないので、有効なままにしておく理由が無い（乱用対策になる）
 3. **Mac版のGoogleサインインが引き続き通るか。** クライアントは差し替えず

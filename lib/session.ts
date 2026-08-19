@@ -16,23 +16,69 @@ import { supabaseBrowserClient } from "@/lib/supabase";
  * real account rather than to whoever happened to open the page.
  */
 
-/** Where to send the browser back to after Google. */
-function callbackURL(next: string): string {
-  const url = new URL("/auth/callback", window.location.origin);
-  if (next) url.searchParams.set("next", next);
-  return url.toString();
+/**
+ * Where to send the browser back to after Google — and nothing else.
+ *
+ * Supabase matches `redirect_to` against its Redirect URLs allowlist as a
+ * literal glob over the whole string. A query parameter on it — this used to
+ * carry `?next=…` — makes the registered URL not match, and an unmatched
+ * redirect is silently replaced with the project's Site URL. That is
+ * api.universal-io.com, another client's landing page: the tokens arrived on
+ * the wrong origin and this one stayed signed out, from every entry point at
+ * once. So the URL is kept byte-identical to the registered value and the
+ * destination travels beside it, in sessionStorage.
+ */
+function callbackURL(): string {
+  return new URL("/auth/callback", window.location.origin).toString();
+}
+
+const NEXT_KEY = "universal-io:after-sign-in";
+
+/**
+ * The path to land on after the callback, stored by signInWithGoogle and
+ * cleared on read. Only paths within this app pass: an open redirect would let
+ * a link sign somebody in and then drop them on another site wearing this
+ * one's trust. sessionStorage is per-tab, so two tabs signing in at once
+ * cannot pick up each other's destination.
+ */
+export function consumeNext(): string {
+  const next = window.sessionStorage.getItem(NEXT_KEY);
+  window.sessionStorage.removeItem(NEXT_KEY);
+  if (!next || !next.startsWith("/") || next.startsWith("//")) return "/solo";
+  return next;
+}
+
+/**
+ * Whether a session stands for a person who signed in.
+ *
+ * Anonymous sign-in was removed, but the sessions it made did not disappear
+ * with it: they live in the browser that got one and refresh themselves
+ * indefinitely. Code that only asks "is there a session" therefore lets those
+ * browsers straight past the sign-in — which is exactly what happened, and it
+ * showed up as the product appearing to need no account at all. Identity is
+ * decided here, in one place, so the wall, the token and the account display
+ * cannot disagree about who is signed in.
+ */
+export function signedIn(session: Session | null): Session | null {
+  if (!session) return null;
+  return session.user.is_anonymous ? null : session;
 }
 
 export async function currentSession(): Promise<Session | null> {
   const { data } = await supabaseBrowserClient().auth.getSession();
-  return data.session ?? null;
+  const session = signedIn(data.session ?? null);
+  // A leftover anonymous session is not merely ignored but cleared, or it goes
+  // on refreshing itself in the background for as long as the browser lives.
+  if (data.session && !session) await signOut();
+  return session;
 }
 
 export async function signInWithGoogle(next: string): Promise<void> {
+  window.sessionStorage.setItem(NEXT_KEY, next);
   const { error } = await supabaseBrowserClient().auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: callbackURL(next),
+      redirectTo: callbackURL(),
       // Somebody with several accounts is otherwise silently signed in as
       // whichever one Google happens to prefer, which is the wrong one often
       // enough to be worth a click (app-mac asks for this too).
