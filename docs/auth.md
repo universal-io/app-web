@@ -93,17 +93,11 @@ https://console.cloud.google.com/auth/clients?project=899703844772
 Gemini のAPIキーであって、認証とは無関係。** Google Cloud が「認証情報」という同じ
 見出しに両方を並べているだけで、方向が逆（機械が機械を認証する／人がアプリに認証される）。
 
-### 現状の登録内容と、足りないもの
+### 登録内容
 
-承認済みのJavaScript生成元は次の3つしか入っていない。
-
-```
-http://localhost:3000
-http://127.0.0.1:3000
-https://bombsquad.me          ← レガシー
-```
-
-**app-web も `universal-io.com` も入っていない。** 足すもの:
+**2026-08-20 に app-web のオリジンを追加し、同意画面も設定済み。**
+それまでは `localhost:3000` と `bombsquad.me` の2つしか入っておらず、
+`universal-io.com` からも app-web からもサインインできない状態だった。
 
 ### Supabase → Authentication → URL Configuration → Redirect URLs
 
@@ -139,11 +133,16 @@ Client ID と Secret は変わらないので、**追加するだけならMac版
 > `universal-io.com` 系で、移行は2026-07-03に完了している（同ファイル冒頭に
 > そう書かれており、同じファイルの中で矛盾している）。
 
-## 7. 未確認
+## 7. 未確認（次にやること）
 
-1. **上記のダッシュボード設定。** 未登録なら実際のサインインは通らない
-2. **Supabaseの匿名サインインにIP単位のレート制限があった**ように、OAuthにも
-   同種の制限がありうる。実運用で確認する
-3. `guest` プランは存在しない（`free`/500・`standard`・`pro`・`team`・`enterprise`）。
+1. **🔴 実機でのサインイン通しテスト。** 外部設定は 2026-08-20 に済んだが、
+   `/solo` で実際にGoogleサインインしてから画面共有・質問まで到達できたかは
+   **まだ確認していない**。ここが次の最初の一歩
+2. **Supabaseの「Allow anonymous sign-ins」を無効にする。** app-web はもう
+   匿名を使っていないので、有効なままにしておく理由が無い（乱用対策になる）
+3. **Mac版のGoogleサインインが引き続き通るか。** クライアントは差し替えず
+   オリジンを追加しただけなので影響は無いはずだが、確認はしていない
+4. OAuthにIP単位のレート制限があるか（匿名サインインにはあった）。実運用で確認する
+5. `guest` プランは存在しない（`free`/500・`standard`・`pro`・`team`・`enterprise`）。
    サインインしたユーザーは全員 free/500 から始まる
-4. Apple ID とメールリンクは app-web では未実装（api-gateway 側にはメールリンクがある）
+6. Apple ID とメールリンクは app-web では未実装（api-gateway 側にはメールリンクがある）

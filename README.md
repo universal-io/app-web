@@ -86,8 +86,9 @@ npm run dev                  # http://localhost:7380
 アカウントに紐づけて計測する。**Mac版とまったく同じアカウント**（同一のSupabase
 プロジェクト）なので、どちらでサインインしても利用枠と履歴は共通になる。
 
-**動かす前に、Supabase と Google Cloud に app-web のURLを登録する必要がある**
-（[docs/auth.md](docs/auth.md) §6）。未登録だとリダイレクトで失敗する。
+外部設定（Supabase の Redirect URLs と Google Cloud の承認済みオリジン）は
+**2026-08-20 に登録済み**。触るときは [docs/auth.md](docs/auth.md) §6 を見ること
+— **どのGoogleアカウントで開くか**が最初の関門になる。
 
 Gatewayは既定で本番（`api.universal-io.com`）を見る。`localhost:7380` はGateway側の
 CORS許可リストに入っている。**Gatewayは `../api-gateway`（別リポジトリ）**で、
@@ -186,9 +187,15 @@ app-ios は「**サーバーが受け取ったバイトに、サーバーが返�
 ソロモードのバッファには道具を作り、実際に2つの誤りを暴いた（[log.md](docs/log.md)）。
 同じことを座標にもやる。
 
+### 🔴 実機でのサインイン通しテストが未了
+
+認証を入れた直後で、**`/solo` で実際にサインインしてから質問まで到達できたか
+確認していない**。次のセッションの最初の一歩がこれ。
+残りの確認事項は [auth.md §7](docs/auth.md)。
+
 ### 各モードの未確認事項
 
-[solo-mode.md §8](docs/solo-mode.md) と [two-device-mode.md §5](docs/two-device-mode.md) を参照。
+[solo-mode.md §9](docs/solo-mode.md) と [two-device-mode.md §5](docs/two-device-mode.md) を参照。
 
 ### Gateway側
 

@@ -10,6 +10,16 @@
 
 ## 2026-08-19 — Googleサインインを必須にした
 
+### 2026-08-20: 外部設定を登録し、アカウントの所在を3リポジトリに書いた
+
+`whatifepxyz@gmail.com` のクライアントに app-web のオリジンを追加し、同意画面も設定。
+**同じ「アカウントと外部サービス」節を app-web/README.md、app-mac/AGENTS.md、
+api-gateway/AGENTS.md の3つに置いた。** 探し回るコストが高すぎたため。
+
+あわせて `api-gateway/docs/supabase-setup.md` を実態に合わせた。あの文書は
+冒頭で「移行完了」と書きながら別の節では `bombsquad.me` を本番として挙げており、
+Google Cloud の登録内容も古いままで、実際に誤誘導を生んだ。
+
 ### 分かったこと: 認証のGCPは別のGoogleアカウントにあった
 
 OAuthクライアントは `whatifepxyz@gmail.com` のプロジェクト `899703844772` にあった。
