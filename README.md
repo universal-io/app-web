@@ -11,7 +11,7 @@
 発揮するためのエンパワーメントでもあること。**補助具は当事者だけのものにした瞬間に
 普及しない。眼鏡のように全員のものにする**（app-mac の投資家ピッチと同じ立場）。
 
-本番: <https://universal-io-app-web-kaya-matsumotos-projects.vercel.app>
+本番: <https://universal-io.com>（このアプリがドメインのルートを持つ）
 
 ---
 
@@ -30,7 +30,8 @@
 | **Gemini APIキー** | `matsumotokaya@gmail.com` の `My First Project` | 認証とは無関係。Gateway の `GEMINI_API_KEY`。**「認証情報」に並んでいるが人のログインには使っていない** |
 | **Supabase** | organization `whatif-ep` / project `bomb-squad` | ref は `.env.local` 参照。app-web・api-gateway・app-mac が共有 |
 | **顧客向け問い合わせ先** | **`info@universal-io.com`** | 届け先は `matsumotokaya@gmail.com` |
-| **Vercel（app-web）** | プロジェクト `universal-io-app-web` | |
+| **Vercel（app-web）** | プロジェクト `universal-io-app-web` | **`universal-io.com` / `www` を持つ** |
+| **Vercel（製品サイト）** | プロジェクト `web-product` | `/product/*` の中継先。**消さない・改名しない**（下記） |
 
 **Client Secret は Google 側で再表示できない。** すでに Supabase に入っているので、
 紛失したら新しいシークレットを追加してローテーションする。
@@ -77,6 +78,45 @@
 
 ---
 
+## ドメイン構成（`universal-io.com`）
+
+**アプリがルートを持ち、製品サイトは `/product` にいる。**
+web版の存在意義は「URLを開くだけ」で、URLがインストーラーそのものだから、
+住所は一等地に置く（ChatGPT が chat.openai.com → chatgpt.com へ移った側の設計）。
+
+| URL | 中身 | どこが配信するか |
+|---|---|---|
+| `universal-io.com/` | **アプリ本体** | このリポジトリ |
+| `universal-io.com/product/*` | 製品サイト・料金・会社・法務 | **`../web-product`**（別リポジトリ・別Vercelプロジェクト） |
+| `api.universal-io.com` | Gateway | `../api-gateway` |
+| `dl.universal-io.com` | Mac版のDMG | R2 |
+
+Vercel のマルチゾーン構成。[next.config.ts](next.config.ts) の rewrites が
+`/product/*` を web-product の本番デプロイへ中継し、web-product 側は
+`basePath: "/product"` で受ける。
+
+**🔴 `web-product` の Vercel プロジェクトを消さない・改名しない。**
+`/product/*` は今もそのプロジェクトから配信されている。中継先のURL
+（`web-product-kaya-matsumotos-projects.vercel.app`）が**プロジェクト名を含む**ため、
+改名すると中継が切れる。紛らわしいから消す、をやると製品サイトが全部消える。
+
+**web-product の Deployment Protection は preview のみにしてある。**
+既定の `all_except_custom_domains` だと中継元から取得できず、SSOのログイン画面が返る。
+
+**`robots.txt` はこちら側にある**（[app/robots.ts](app/robots.ts)）。
+ドメインのルートを持つ側でしか `/robots.txt` を出せない。sitemap は web-product 側。
+
+### www ではなく apex を正にする
+
+`universal-io.com` を Production、`www` をそこへのリダイレクトにする。**逆にしてはいけない。**
+Supabase の Redirect URLs・Google の承認済みJavaScript生成元・`metadataBase`・sitemap の
+すべてが apex で登録されており、www で開かれると `redirect_to` が許可リストと一致せず、
+**黙って Site URL（`api.universal-io.com`）へ落ちる**（[docs/log.md](docs/log.md) にある
+再発しやすい罠）。
+
+「apex に CNAME は置けないから www を使う」という一般論はここでは当てはまらない。
+DNSは Cloudflare で、CNAME flattening により apex に CNAME が入って動いている。
+
 ## 動かす
 
 ```bash
@@ -90,8 +130,9 @@ npm run dev                  # http://localhost:7380
 プロジェクト）なので、どちらでサインインしても利用枠と履歴は共通になる。
 
 外部設定（Supabase の Redirect URLs と Google Cloud の承認済みオリジン）は
-**2026-08-20 に登録済み**。触るときは [docs/auth.md](docs/auth.md) §6 を見ること
-— **どのGoogleアカウントで開くか**が最初の関門になる。
+**2026-08-20 に登録済み**（`universal-io.com` を含む）。触るときは
+[docs/auth.md](docs/auth.md) §6 を見ること — **どのGoogleアカウントで開くか**が
+最初の関門になる。
 
 Gatewayは既定で本番（`api.universal-io.com`）を見る。`localhost:7380` はGateway側の
 CORS許可リストに入っている。**Gatewayは `../api-gateway`（別リポジトリ）**で、
@@ -189,11 +230,6 @@ app-ios は「**サーバーが受け取ったバイトに、サーバーが返�
 1枚で決着させた。**座標については web 版に同等の手段が無い。**
 ソロモードのバッファには道具を作り、実際に2つの誤りを暴いた（[log.md](docs/log.md)）。
 同じことを座標にもやる。
-
-### ドメイン（次にやること）
-
-**アプリを `universal-io.com` のルートに置き、製品サイト（`../web-product`）を
-下層へ移す。** 決定済み・未着手。手順の入口は [HANDOFF.md](HANDOFF.md)。
 
 ### 各モードの未確認事項
 

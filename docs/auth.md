@@ -116,9 +116,15 @@ Gemini のAPIキーであって、認証とは無関係。** Google Cloud が「
 | 値 | 用途 |
 |---|---|
 | `http://localhost:7380/auth/callback` | app-web のローカル開発 |
-| `https://universal-io-app-web-kaya-matsumotos-projects.vercel.app/auth/callback` | app-web の現在の本番 |
-| `https://app.universal-io.com/auth/callback` | 独自ドメインへ移したとき |
+| `https://universal-io.com/auth/callback` | **app-web の本番**（ドメインのルート） |
+| `https://universal-io-app-web-kaya-matsumotos-projects.vercel.app/auth/callback` | Vercelの発行URL（移行前の本番） |
+| `https://app.universal-io.com/auth/callback` | 使っていない（残置） |
 | `universal-io://auth/callback` | Mac版（既存） |
+
+**🔴 `www` は登録していない。** だから Vercel では **apex を Production にし、
+`www` はそこへリダイレクトさせる**（逆にすると `redirect_to` が
+`https://www.universal-io.com/auth/callback` になり、許可リストと一致せず
+黙って Site URL へ落ちる）。www を正にしたいなら、まずここに www 版を足すこと。
 
 ### Google Cloud → OAuth クライアント（`Supabase Auth Client`）
 
@@ -133,8 +139,8 @@ https://skcsbcyivjcvevxntvqa.supabase.co/auth/v1/callback
 
 ```
 http://localhost:7380                                              ← app-web ローカル
-https://universal-io-app-web-kaya-matsumotos-projects.vercel.app   ← app-web 本番
-https://universal-io.com                                           ← 製品サイト。未登録
+https://universal-io-app-web-kaya-matsumotos-projects.vercel.app   ← Vercelの発行URL
+https://universal-io.com                                           ← 本番（アプリと製品サイト）
 ```
 
 Client ID と Secret は変わらないので、**追加するだけならMac版への影響は無い**。
@@ -147,9 +153,9 @@ Client ID と Secret は変わらないので、**追加するだけならMac版
 
 ## 7. 未確認（次にやること）
 
-1. **🔴 ドメイン移行時の登録追加。** アプリを `universal-io.com` のルートへ移す
-   決定があり、§6 の3か所（GCPのJavaScript生成元・SupabaseのRedirect URLs・
-   GatewayのCORS）に新オリジンを足す必要がある。HANDOFF の最初の一歩
+1. **ドメイン移行は完了した。** §6 の3か所はすべて `universal-io.com` を含む
+   （GatewayのCORSには元から入っていた）。残るのは **apex を Production にする**
+   Vercel 側の設定と、実機での通し確認。HANDOFF の最初の一歩
 2. OAuthにIP単位のレート制限があるか（匿名サインインにはあった）。実運用で確認する
 5. `guest` プランは存在しない（`free`/500・`standard`・`pro`・`team`・`enterprise`）。
    サインインしたユーザーは全員 free/500 から始まる

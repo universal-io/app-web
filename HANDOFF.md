@@ -9,36 +9,45 @@
 
 ---
 
-## 🔴 最初の一歩: ドメイン移行
+## 🔴 最初の一歩: apex を正にして、実機で通しで確かめる
 
-**アプリを `universal-io.com` のルートに置き、製品サイトを下層へ移す**（決定済み。
-ChatGPT が chat.openai.com → chatgpt.com へ移った側の設計。web版の存在意義は
-「URLを開くだけ」で、URL がインストーラーそのものだから、住所は一等地に置く）。
+**ドメイン移行は完了した。** `universal-io.com/` がアプリ、`/product/*` が製品サイト。
+残っているのは2つだけ。
 
-- **製品サイトは `../web-product`**（別リポジトリ。中身は未調査）
-- app-web の Vercel プロジェクトは `universal-io-app-web`
+### 1. Vercel で apex を Production にする（www と逆向きにする）
 
-**触る外部設定は3つ。全部「毎回忘れる」領域なので auth.md §6 を読むこと。**
+現在 `www.universal-io.com` が Production で、apex がそこへ308している。**これは逆。**
+`universal-io.com` を Production、`www` をリダイレクトにする。
 
-| 設定 | 場所 | 注意 |
-|---|---|---|
-| 承認済みJavaScript生成元 | Google Cloud の `Supabase Auth Client` | **`whatifepxyz@gmail.com` で開く**。他アカウントでは403 |
-| Redirect URLs | Supabase | **クエリを付けない値を登録する**（照合は文字列全体） |
-| CORS許可リスト | `../api-gateway`（別リポジトリ） | main への push が本番デプロイ |
+理由: Supabase の Redirect URLs・Google の承認済みJavaScript生成元・`metadataBase`・
+sitemap がすべて apex で登録されている。www で開かれると `redirect_to` が許可リストと
+一致せず、**黙って Site URL（`api.universal-io.com`）へ落ちる** — log.md にある
+「全入り口からのサインインが別オリジンへ流れた」のと同じ罠。
 
-ルート構成は決着済み: **`/` が製品本体**（旧 `/solo`）で、スマホ・タブレットで
-見るのはその中のボタン（QR → `/companion/[roomId]`）。旧URLはリダイレクトが張ってある。
+「apex に CNAME は置けないから www」という一般論はここでは無効。DNSは Cloudflare で、
+CNAME flattening により apex に CNAME が入って動いている（実測済み）。
+
+### 2. 実機で通しで確かめる（自動検証では届かない範囲）
+
+- [ ] `universal-io.com` でGoogleサインイン → 質問 → 回答 → 枠
+- [ ] 「スマホやタブレットで見る」→ QR → 別端末で `/companion/[roomId]` →
+      指して質問（**この統合は自動検証しか通っていない**）
+- [ ] コンパニオンで「画面全体」を共有し、PCを普通に使いながら手元の端末に映るか
+- [ ] `/product` から「ブラウザで今すぐ使う」でアプリに来られるか
 
 ## 済んだこと（2026-08-20）
 
-**URLを製品の形に統合した。** `/` = 本体（旧ソロ）、`/companion/[roomId]` = 見る側
+**ドメイン移行が完了した。** アプリがルート、製品サイトが `/product`。
+Vercel のマルチゾーン（app-web の rewrites ＋ web-product の `basePath`）。
+構成と踏んではいけない穴は [README](README.md) の「ドメイン構成」。
+
+**URLを製品の形に統合した。** `/` = 本体（旧 `/solo`）、`/companion/[roomId]` = 見る側
 （旧 `/watch`）。「2台構成」は独立モードをやめ、本体の「スマホやタブレットで見る」
-ボタン（同じ共有ストリームを部屋に流すだけ）になった。旧 `/solo`・`/watch` は
-リダイレクト。自動検証は全項目通過。**実機（本物のサインイン・本物の2台）では未確認。**
+ボタン（同じ共有ストリームを部屋に流すだけ）になった。旧URLはリダイレクト。
 
-**認証は完了した。** 実機で次がすべて通った。
+**認証は完了した。** 実機で次がすべて通った（旧URLでの確認）。
 
-1. `/solo`（現 `/`）からのGoogleサインイン（→ 質問・回答・枠まで到達）
+1. Googleサインイン（→ 質問・回答・枠まで到達）
 2. Supabase の「Allow anonymous sign-ins」を無効化
 3. Mac版のGoogleサインインが引き続き通ること
 
@@ -57,6 +66,8 @@ ChatGPT が chat.openai.com → chatgpt.com へ移った側の設計。web版の
 | **`getDisplayMedia` のピッカーは制御できない** | ペインを消せず、`displaySurface` のヒントも Chrome 151 は無視する |
 | **座標に触るなら `../app-ios/docs/investigation-highlight-offset.md` を読む** | 解決済みの問題を一度解き直した。「要約に書いてあるから読んだことにする」が失敗の形だった |
 | **`redirect_to` にクエリを付けない** | Supabase の許可リストは文字列全体で照合し、不一致は黙って Site URL（Mac版の着地点）へ落ちる。戻り先は sessionStorage で運ぶ（auth.md §3） |
+| **`web-product` の Vercelプロジェクトを消さない・改名しない** | `/product/*` は今もそこから配信されている。中継先URLがプロジェクト名を含むので、改名でも切れる（README「ドメイン構成」） |
+| **製品サイトは `../web-product`** | Next.js 16 + next-intl（`/product` 英語・`/product/ja` 日本語）。`basePath` 下では生パスのアセットに `/product` を自分で書く必要がある |
 
 ## 落とし穴（このセッションで踏んだもの）
 

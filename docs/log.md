@@ -308,3 +308,27 @@ docs/two-device-mode.md は companion-mode.md へ改名。
 判断の根拠: ソロとウォッチは別モードではなく同じ共有の見口が違うだけ、という
 ユーザーの整理。URL の一等地に製品本体を置くドメイン移行（README「未解決のこと」）の
 前提として先に決着させた。
+
+## 2026-08-20 ドメイン移行（アプリがルート、製品サイトが /product）
+
+`universal-io.com/` = アプリ、`/product/*` = 製品サイト。Vercel のマルチゾーンで、
+app-web の rewrites が web-product の本番デプロイへ中継し、web-product は
+`basePath: "/product"` で受ける。リポジトリは統合しなかった（サイトはファミリー全体の
+玄関であってweb版の付属物ではない、変更のリズムが違う、next-intl のミドルウェアを
+アプリ側に持ち込む税金が毎回かかる、の3点）。
+
+### 間違えた記録
+
+- **web-product の Deployment Protection が `all_except_custom_domains` だった。**
+  カスタムドメインを外した瞬間、中継元から取得できるのはVercelのSSOログイン画面だけに
+  なる。「rewrites が動かない」ではなく「製品サイトがログイン画面になる」という顔で出る。
+  preview のみに変更した
+- **`/product` だけが404になった。** basePath 下では next-intl の
+  ミドルウェア matcher に接頭辞が付くため、`"/"` エントリが無いと既定ロケールのトップ
+  だけが落ちる。サブページは全部通るので、気づくのが遅れる形の壊れ方
+- **www と apex の向きを逆にすると、サインインが黙って壊れる。** Supabase の
+  Redirect URLs に登録したのは apex 版だけ。www で開かれると `redirect_to` が
+  一致せず Site URL（`api.universal-io.com`）へ落ちる。2026-07 に `?next=` で
+  踏んだのと同じ穴で、原因が違うだけ
+- **`robots.txt` は basePath 配下に置けない。** web-product にあった `robots.ts` は
+  `/product/robots.txt` として配信され、誰も読まない。ルートを持つ app-web へ移した
