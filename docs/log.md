@@ -331,6 +331,12 @@ app-web の rewrites が web-product の本番デプロイへ中継し、web-pro
   一致せず Site URL（`api.universal-io.com`）へ落ちる。2026-07 に `?next=` で
   踏んだのと同じ穴で、原因が違うだけ。**実際に踏んだ** — 移行直後に www を
   Production にしたため、ログイン後 `api.universal-io.com/auth#` に着地した。
-  apex を Production、www を308に直して解消
+  apex を Production、www を308に直して解消。
+
+  **さらにその直後、直したのに症状が続いた。** 反転前に apex→www を308（永続）で
+  張っていたため、ブラウザが「apex は www へ」を自分のキャッシュから適用し続けていた
+  （最有力の説明。事後には切り分けられない）。**設定は既に正しいのに症状が残る**という
+  形で出るので、設定を疑い直すと時間を失う。向きを変える作業には、キャッシュが抜ける
+  までの待ちが含まれると思っておく
 - **`robots.txt` は basePath 配下に置けない。** web-product にあった `robots.ts` は
   `/product/robots.txt` として配信され、誰も読まない。ルートを持つ app-web へ移した

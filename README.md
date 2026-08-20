@@ -106,13 +106,22 @@ Vercel のマルチゾーン構成。[next.config.ts](next.config.ts) の rewrit
 **`robots.txt` はこちら側にある**（[app/robots.ts](app/robots.ts)）。
 ドメインのルートを持つ側でしか `/robots.txt` を出せない。sitemap は web-product 側。
 
-### www ではなく apex を正にする
+### www ではなく apex を正にする（設定済み）
 
-`universal-io.com` を Production、`www` をそこへのリダイレクトにする。**逆にしてはいけない。**
+`universal-io.com` が Production で、`www` はそこへ **308（永続）**。**逆にしてはいけない。**
 Supabase の Redirect URLs・Google の承認済みJavaScript生成元・`metadataBase`・sitemap の
 すべてが apex で登録されており、www で開かれると `redirect_to` が許可リストと一致せず、
-**黙って Site URL（`api.universal-io.com`）へ落ちる**（[docs/log.md](docs/log.md) にある
-再発しやすい罠）。
+**黙って Site URL（`api.universal-io.com`）へ落ちる**。一度この向きにして実際に壊れ、
+ログイン後 `api.universal-io.com/auth#` に着地した（[docs/log.md](docs/log.md)）。
+
+永続にしてよいのは、住所を永久に畳む判断だから。**逆に `/solo`・`/watch` の
+リダイレクトは307（一時）**にしてある（[next.config.ts](next.config.ts)）
+— あのパスは将来別の用途に使うかもしれず、ブラウザキャッシュで不可逆にしたくない。
+
+**🔴 向きを変えた直後は、ブラウザが古い永続リダイレクトを覚えている。**
+apex→www を308で張ってから www→apex に反転すると、以前訪れた人のブラウザは
+自分のキャッシュから apex を www へ飛ばし続ける。**Vercelの設定は正しいのに
+症状が消えない**という形で現れるので、設定を疑って直し続けると時間を失う。
 
 「apex に CNAME は置けないから www を使う」という一般論はここでは当てはまらない。
 DNSは Cloudflare で、CNAME flattening により apex に CNAME が入って動いている。
