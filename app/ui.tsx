@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { SiteFooter, SiteHeader } from "@/app/chrome";
 
 /**
  * Whether this is running in the browser yet.
@@ -25,16 +26,28 @@ export function Notice({
   tone: "warn" | "error";
   children: React.ReactNode;
 }) {
+  // One light style each. These render on the white entry pages and inside the
+  // dark mirror panels alike, and a solid light background stays readable on
+  // both — where the OS-preference dark: variant matched neither reliably.
   const styles = tone === "error"
-    ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
-    : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200";
+    ? "border-red-200 bg-red-50 text-red-800"
+    : "border-amber-200 bg-amber-50 text-amber-900";
   return <p className={`rounded-lg border px-3 py-2 text-sm ${styles}`}>{children}</p>;
 }
 
+/**
+ * The frame every entry page sits in: the shared site chrome above and below,
+ * the page in a readable column between. The mirror views do not use it — they
+ * own the whole screen.
+ */
 export function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 p-4 sm:p-6">
-      {children}
-    </main>
+    <>
+      <SiteHeader />
+      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-5 py-8 sm:px-10 sm:py-10">
+        {children}
+      </main>
+      <SiteFooter />
+    </>
   );
 }

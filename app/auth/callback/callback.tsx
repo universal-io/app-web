@@ -62,12 +62,12 @@ export function AuthCallback() {
     return (
       <Shell>
         <Notice tone="error">{error}</Notice>
-        <Link href="/" className="self-start rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600">
+        <Link href="/" className="self-start rounded-[10px] border border-line px-3 py-2 text-sm text-body transition-colors hover:bg-paper">
           最初からやり直す
         </Link>
       </Shell>
     );
   }
-  return <Shell><p className="text-slate-500">ログインを確認しています…</p></Shell>;
+  return <Shell><p className="text-slate">ログインを確認しています…</p></Shell>;
 }
 

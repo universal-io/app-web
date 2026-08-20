@@ -88,7 +88,7 @@ export function Snapshot({ capture, pointer, annotations, onPointer, stroke }: P
 
         {!drawing && pointer?.kind === "point" && (
           <div
-            className="pointer-events-none absolute h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-cyan-400"
+            className="pointer-events-none absolute h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-cyan"
             style={{ left: `${pointer.point.x * 100}%`, top: `${pointer.point.y * 100}%` }}
           />
         )}
@@ -138,7 +138,7 @@ export function Stroke({ points }: { points: Point[] }) {
       <polyline
         points={points.map((p) => `${p.x},${p.y}`).join(" ")}
         fill="none"
-        stroke="#22d3ee"
+        stroke="#37d5f2"
         strokeLinecap="round"
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"

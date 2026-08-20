@@ -183,7 +183,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
             <button
               onClick={freeze}
               disabled={!connected}
-              className="w-full rounded-xl bg-blue-600 px-4 py-4 text-base font-medium text-white shadow-lg disabled:opacity-40"
+              className="w-full rounded-xl bg-iris px-4 py-4 text-base font-semibold text-white shadow-lg transition-colors active:bg-iris-deep disabled:opacity-40"
             >
               この画面について聞く
             </button>
@@ -214,7 +214,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
             />
           </div>
 
-          <div className="space-y-2 bg-neutral-900/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
+          <div className="space-y-2 bg-carbon/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
             {error && <Notice tone="error">{error}</Notice>}
             {answer && <AnswerPanel answer={answer} />}
             <QuestionInput value={question} onChange={setQuestion} onSubmit={ask} busy={busy} />

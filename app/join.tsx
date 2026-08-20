@@ -31,7 +31,7 @@ export function Join({ compact = false }: { compact?: boolean }) {
       {!compact && (
         <div className="space-y-1">
           <h2 className="text-base font-medium">共有された画面を見る</h2>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate">
             パソコン側に表示されているコードを入力してください。
           </p>
         </div>
@@ -50,11 +50,11 @@ export function Join({ compact = false }: { compact?: boolean }) {
           autoCapitalize="characters"
           autoCorrect="off"
           spellCheck={false}
-          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-3 font-mono text-base tracking-widest dark:border-slate-600 dark:bg-slate-800"
+          className="min-w-0 flex-1 rounded-[10px] border border-edge bg-white px-3 py-3 font-mono text-base tracking-widest text-ink outline-none transition-colors focus:border-iris"
         />
         <button
           onClick={go}
-          className="shrink-0 rounded-lg bg-blue-600 px-4 py-3 text-sm font-medium text-white"
+          className="shrink-0 rounded-[10px] bg-ink px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-iris"
         >
           見る
         </button>

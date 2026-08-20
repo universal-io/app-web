@@ -1,6 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect width="64" height="64" rx="14" fill="#0b0b0c"/>
-  <rect x="12" y="16" width="40" height="28" rx="4" fill="none" stroke="#f8fafc" stroke-width="3"/>
-  <circle cx="32" cy="30" r="7" fill="none" stroke="#FF00E5" stroke-width="3"/>
-  <path d="M32 25.5v9M27.5 30h9" stroke="#FF00E5" stroke-width="2" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 260">
+  <!-- Theme-adaptive favicon: the I and O follow the browser tab theme (dark
+       mark on light tabs, white mark on dark tabs) so the mark never turns into
+       a blob or vanishes; the "//" keeps the brand gradient, which reads on
+       both. Transparent background. PNG (src/app/icon.png) is the fallback. -->
+  <style>
+    .io { fill: #1a1a1a; }
+    @media (prefers-color-scheme: dark) { .io { fill: #ffffff; } }
+  </style>
+  <defs>
+    <linearGradient id="g1" x1="80.8" y1="9.6" x2="42.1" y2="84.4" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="aqua"/>
+      <stop offset="1" stop-color="#002dff"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="108.5" y1="9.6" x2="69.7" y2="84.4" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="aqua"/>
+      <stop offset="1" stop-color="#002dff"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(25.1 82.8)">
+    <path class="io" d="M9.4,6.4h19.9v81.4H9.4V6.4Z"/>
+    <path fill="url(#g1)" d="M68.5,6.4h14l-28.2,81.4h-14.1L68.5,6.4Z"/>
+    <path fill="url(#g2)" d="M96.1,6.4h14l-28.2,81.4h-14.1L96.1,6.4Z"/>
+    <path class="io" d="M156.6,3.7c25.6,0,43.8,19.1,43.8,43.4s-18.2,43.4-43.8,43.4-43.8-19.1-43.8-43.4S130.9,3.7,156.6,3.7ZM156.6,71.6c14.4,0,23.6-10.8,23.6-24.5s-9.2-24.5-23.6-24.5-23.6,10.8-23.6,24.5,9.1,24.5,23.6,24.5Z"/>
+  </g>
 </svg>

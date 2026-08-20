@@ -74,7 +74,7 @@ export function QuestionInput({
         // assignable to an event handler.
         onClick={() => onSubmit()}
         disabled={busy}
-        className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+        className="shrink-0 rounded-[10px] bg-iris px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-iris-deep disabled:opacity-40"
       >
         {busy ? "…" : "聞く"}
       </button>

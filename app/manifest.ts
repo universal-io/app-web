@@ -26,6 +26,13 @@ export default function manifest(): MetadataRoute.Manifest {
         sizes: "any",
         type: "image/svg+xml",
       },
+      // The same brand mark the product site ships; Android's installer wants
+      // a raster size to pick from.
+      {
+        src: "/icon.png",
+        sizes: "512x512",
+        type: "image/png",
+      },
     ],
   };
 }

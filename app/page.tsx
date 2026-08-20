@@ -733,7 +733,7 @@ function Home() {
     [answer, currentCapture],
   );
 
-  if (!mounted) return <Shell><p className="text-slate-500">読み込み中…</p></Shell>;
+  if (!mounted) return <Shell><p className="text-slate">読み込み中…</p></Shell>;
 
   if (unavailable) {
     // A phone cannot capture a screen, so it is never the sharing side.
@@ -743,13 +743,13 @@ function Home() {
     return (
       <Shell>
         <header className="space-y-1">
-          <h1 className="text-xl font-semibold">Universal I/O</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-xl font-semibold tracking-[-0.02em]">Universal I/O</h1>
+          <p className="text-sm text-slate">
             画面を見せて、分からないところを聞けるコパイロットです。
           </p>
         </header>
         <Join />
-        <p className="rounded-lg bg-slate-100 px-3 py-3 text-xs leading-relaxed text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        <p className="rounded-lg bg-paper px-3 py-3 text-xs leading-relaxed text-body">
           この端末では画面を共有できません（スマホ・タブレットのブラウザは画面共有に対応していないためです）。
           パソコンでこのページを開いて「スマホやタブレットで見る」を押すと、QRコードとコードが表示されます。
         </p>
@@ -762,8 +762,8 @@ function Home() {
     return (
       <Shell>
         <header className="space-y-1">
-          <h1 className="text-xl font-semibold">説明してほしい画面を選ぶ</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-xl font-semibold tracking-[-0.02em]">説明してほしい画面を選ぶ</h1>
+          <p className="text-sm text-slate">
             選んだ画面がこのページに映ります。分からない場所を指して質問できます。
           </p>
         </header>
@@ -772,14 +772,14 @@ function Home() {
         <button
           onClick={() => void start("here")}
           disabled={!accountReady || signingIn}
-          className="self-start rounded-lg bg-blue-600 px-4 py-3 text-base font-medium text-white disabled:opacity-50"
+          className="self-start rounded-[10px] bg-ink px-[18px] py-3 text-base font-semibold text-white transition-colors hover:bg-iris disabled:opacity-50"
         >
           {signingIn ? "Googleに移動しています…" : "画面を選ぶ"}
         </button>
         {/* Being sent to Google by a button that says nothing about it feels
             like a malfunction; one sentence ahead of time makes it the plan. */}
         {accountReady && !session && (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate">
             質問にはGoogleサインインが必要です（Mac版と同じアカウント）。
             ボタンを押すとサインインしてから戻ってきます。
           </p>
@@ -788,7 +788,7 @@ function Home() {
             reordered or removed, and Chrome 151 ignores which one we ask it to
             open on. So the difference between them is explained here instead,
             in the order of how well each one works. */}
-        <div className="space-y-2 rounded-lg bg-slate-100 px-3 py-3 text-xs leading-relaxed text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        <div className="space-y-2 rounded-lg bg-paper px-3 py-3 text-xs leading-relaxed text-body">
           <p>
             <strong>「Chrome のタブ」から選ぶのが一番うまく動きます。</strong>
             そのタブに移動せずに、このページに映したまま見て質問できます。
@@ -798,10 +798,10 @@ function Home() {
           </p>
           <p>選んだ画面のうち、あなたが質問した1枚だけが送信されます。それ以外はこのタブの中だけに置かれ、共有をやめると消えます。</p>
         </div>
-        <div className="space-y-2 border-t border-slate-200 pt-6 dark:border-slate-700">
+        <div className="space-y-2 border-t border-line pt-6">
           <div className="space-y-1">
             <h2 className="text-base font-medium">スマホやタブレットで見る</h2>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate">
               この画面を手元の端末に映して、そちらから質問します。パソコンはそのまま使い続けられます。
               「画面全体」を選ぶと、していることがそのまま映ります。
             </p>
@@ -809,7 +809,7 @@ function Home() {
           <button
             onClick={() => void start("companion")}
             disabled={!accountReady || signingIn}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium disabled:opacity-50 dark:border-slate-600"
+            className="rounded-[10px] border border-line px-4 py-2 text-sm font-medium text-body transition-colors hover:bg-paper disabled:opacity-50"
           >
             QRコードを表示
           </button>
@@ -820,12 +820,12 @@ function Home() {
   }
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-white text-slate-900 dark:bg-neutral-950 dark:text-white">
+    <div className="fixed inset-0 flex flex-col bg-ink text-white">
       {debug && <DebugPanel screens={screens} report={report} index={index} buffered={buffered} watched={watched} />}
 
       {companionOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-sm space-y-4 rounded-2xl border border-white/10 bg-neutral-900 p-5 text-white shadow-2xl">
+          <div className="w-full max-w-sm space-y-4 rounded-2xl border border-white/10 bg-carbon p-5 text-white shadow-2xl">
             <div className="flex items-start justify-between gap-3">
               <h2 className="text-base font-medium">スマホ・タブレットで見る</h2>
               <button
@@ -991,7 +991,7 @@ function Home() {
               // examined.
               backdropFilter: "brightness(0.72) saturate(0.85)",
               WebkitBackdropFilter: "brightness(0.72) saturate(0.85)",
-              background: "rgba(37,99,235,0.14)",
+              background: "rgba(91,92,255,0.16)",
               maskImage: focused ? SPOT_MASK : undefined,
               WebkitMaskImage: focused ? SPOT_MASK : undefined,
               transition: "mask-image 120ms linear",
@@ -1019,7 +1019,7 @@ function Home() {
       )}
 
       {buffered && screens.length > 1 && (
-        <div className="fixed bottom-4 left-4 z-30 max-w-[min(28rem,calc(100vw-28rem))] space-y-1 rounded-xl bg-neutral-900/80 p-2 text-white backdrop-blur">
+        <div className="fixed bottom-4 left-4 z-30 max-w-[min(28rem,calc(100vw-28rem))] space-y-1 rounded-xl bg-carbon/80 p-2 text-white backdrop-blur">
           <p className="text-[11px] text-white/40">
             別の画面について聞くときは選んでください（新しい順・←→キーでも移動できます）
           </p>
@@ -1029,7 +1029,7 @@ function Home() {
                 key={screen.id}
                 onClick={() => selectCandidate(at)}
                 className={`shrink-0 overflow-hidden rounded border-2 ${
-                  at === index ? "border-blue-500" : "border-transparent opacity-60"
+                  at === index ? "border-iris" : "border-transparent opacity-60"
                 }`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1048,7 +1048,7 @@ function Home() {
       <div
         ref={panelRef}
         style={panelAt ? { left: panelAt.x, top: panelAt.y } : { right: 16, bottom: 16 }}
-        className="fixed z-30 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/10 bg-neutral-900/90 text-white shadow-2xl backdrop-blur"
+        className="fixed z-30 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/10 bg-carbon/90 text-white shadow-2xl backdrop-blur"
       >
         <div
           onPointerDown={onPanelDragStart}

@@ -10,7 +10,7 @@ import { AuthCallback } from "@/app/auth/callback/callback";
  */
 export default function AuthCallbackPage() {
   return (
-    <Suspense fallback={<Shell><p className="text-slate-500">確認しています…</p></Shell>}>
+    <Suspense fallback={<Shell><p className="text-slate">確認しています…</p></Shell>}>
       <AuthCallback />
     </Suspense>
   );

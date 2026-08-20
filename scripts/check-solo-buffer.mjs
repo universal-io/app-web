@@ -260,13 +260,13 @@ console.log("\n[画面全体を共有]");
   const box = await page.locator('img[alt="共有された画面"]').boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await page.waitForTimeout(250);
-  check((await page.locator("div.rounded-full.border-cyan-400").count()) === 1, "タップで印がつく");
+  check((await page.locator("div.rounded-full.border-cyan").count()) === 1, "タップで印がつく");
 
   await page.locator("img.h-12").nth(1).click();
   await page.waitForTimeout(250);
   const swapped = await page.locator('img[alt="共有された画面"]').getAttribute("src");
   check(swapped !== shown, "候補を選ぶと大写しが切り替わる");
-  check((await page.locator("div.rounded-full.border-cyan-400").count()) === 0, "画面を変えると前の印は消える");
+  check((await page.locator("div.rounded-full.border-cyan").count()) === 0, "画面を変えると前の印は消える");
 
   // Returning must jump back to the newest screen without being asked.
   await page.evaluate(() => window.__setAway(true));
@@ -374,7 +374,7 @@ console.log("\n[タブを共有・フォーカス保持]");
   await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
   check(true, "ライブをクリックすると静止する（ボタンは無い）");
   check(
-    (await page.locator("div.rounded-full.border-cyan-400").count()) === 1,
+    (await page.locator("div.rounded-full.border-cyan").count()) === 1,
     "その1クリックがそのまま印になる",
   );
 
@@ -385,7 +385,7 @@ console.log("\n[タブを共有・フォーカス保持]");
 
   // The mark must land where the click did, not offset by the letterbox that
   // object-contain puts above and below the picture.
-  const ring = await page.locator("div.rounded-full.border-cyan-400").boundingBox();
+  const ring = await page.locator("div.rounded-full.border-cyan").boundingBox();
   const shot = await page.locator('img[alt="共有された画面"]').boundingBox();
   const offBy = Math.hypot(
     ring.x + ring.width / 2 - (shot.x + shot.width / 2),
@@ -477,7 +477,7 @@ console.log("\n[タブを共有・フォーカス保持]");
   await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
   check(
     (await page.locator("svg polyline").count()) === 1 &&
-      (await page.locator("div.rounded-full.border-cyan-400").count()) === 0,
+      (await page.locator("div.rounded-full.border-cyan").count()) === 0,
     "ライブ上でなぞると丸囲みになる（点ではない）",
   );
   await page.waitForSelector("text=これはテストの回答です。", { timeout: 10000 });

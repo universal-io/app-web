@@ -73,8 +73,8 @@ export function SignIn({ next, reason }: { next: string; reason?: string }) {
   return (
     <Shell>
       <header className="space-y-1">
-        <h1 className="text-xl font-semibold">Universal I/O</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="text-xl font-semibold tracking-[-0.02em]">Universal I/O</h1>
+        <p className="text-sm text-slate">
           画面を見せて、分からないところを聞けるコパイロットです。
         </p>
       </header>
@@ -85,7 +85,7 @@ export function SignIn({ next, reason }: { next: string; reason?: string }) {
       <button
         onClick={start}
         disabled={busy}
-        className="flex w-full max-w-sm items-center justify-center gap-3 self-start rounded-lg border border-slate-300 bg-white px-4 py-3 text-base font-medium text-slate-900 shadow-sm disabled:opacity-50 dark:border-slate-600"
+        className="flex w-full max-w-sm items-center justify-center gap-3 self-start rounded-[10px] border border-line bg-white px-4 py-3 text-base font-medium text-ink shadow-sm transition-colors hover:bg-paper disabled:opacity-50"
       >
         <svg viewBox="0 0 18 18" className="h-5 w-5" aria-hidden>
           <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z" />
@@ -96,7 +96,7 @@ export function SignIn({ next, reason }: { next: string; reason?: string }) {
         {busy ? "Googleに移動しています…" : "Googleでサインイン"}
       </button>
 
-      <p className="max-w-lg rounded-lg bg-slate-100 px-3 py-3 text-xs leading-relaxed text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+      <p className="max-w-lg rounded-lg bg-paper px-3 py-3 text-xs leading-relaxed text-body">
         Mac版アプリと同じアカウントです。どちらでサインインしても、同じ利用枠と履歴になります。
         画面の画像と回答は保存されません。
       </p>
@@ -133,7 +133,7 @@ export function RequireAccount({
     };
   }, [session]);
 
-  if (!ready) return <Shell><p className="text-slate-500">読み込み中…</p></Shell>;
+  if (!ready) return <Shell><p className="text-slate">読み込み中…</p></Shell>;
   if (error) {
     return (
       <Shell>
@@ -164,7 +164,7 @@ export function Account() {
   const [busy, setBusy] = useState(false);
   if (!session) return null;
   return (
-    <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-6 text-xs text-slate-500 dark:border-slate-700">
+    <div className="flex flex-wrap items-center gap-3 border-t border-line pt-6 text-xs text-slate">
       <span>{session.user.email ?? "サインイン済み"}</span>
       <button
         onClick={() => {
@@ -176,7 +176,7 @@ export function Account() {
       >
         ログアウト
       </button>
-      <span className="text-slate-400">Mac版と同じアカウントです</span>
+      <span className="text-faint">Mac版と同じアカウントです</span>
     </div>
   );
 }
