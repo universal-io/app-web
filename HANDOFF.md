@@ -9,27 +9,16 @@
 
 ---
 
-## 🔴 最初の一歩: apex を正にして、実機で通しで確かめる
+## 🔴 最初の一歩: 実機で通しで確かめる
 
-**ドメイン移行は完了した。** `universal-io.com/` がアプリ、`/product/*` が製品サイト。
-残っているのは2つだけ。
+**ドメイン移行は完了した。** `universal-io.com/` がアプリ、`/product/*` が製品サイト、
+`www` は apex へ308。ここまでは実測で確認済み。
 
-### 1. Vercel で apex を Production にする（www と逆向きにする）
-
-現在 `www.universal-io.com` が Production で、apex がそこへ308している。**これは逆。**
-`universal-io.com` を Production、`www` をリダイレクトにする。
-
-理由: Supabase の Redirect URLs・Google の承認済みJavaScript生成元・`metadataBase`・
-sitemap がすべて apex で登録されている。www で開かれると `redirect_to` が許可リストと
-一致せず、**黙って Site URL（`api.universal-io.com`）へ落ちる** — log.md にある
-「全入り口からのサインインが別オリジンへ流れた」のと同じ罠。
-
-「apex に CNAME は置けないから www」という一般論はここでは無効。DNSは Cloudflare で、
-CNAME flattening により apex に CNAME が入って動いている（実測済み）。
-
-### 2. 実機で通しで確かめる（自動検証では届かない範囲）
+残っているのは**実機での通し確認だけ**（自動検証では届かない範囲）。
 
 - [ ] `universal-io.com` でGoogleサインイン → 質問 → 回答 → 枠
+      （www が正だった間は `api.universal-io.com/auth#` に着地して失敗していた。
+      apex に直したので通るはずだが、**通ったことを見るまでは直ったと言えない**）
 - [ ] 「スマホやタブレットで見る」→ QR → 別端末で `/companion/[roomId]` →
       指して質問（**この統合は自動検証しか通っていない**）
 - [ ] コンパニオンで「画面全体」を共有し、PCを普通に使いながら手元の端末に映るか

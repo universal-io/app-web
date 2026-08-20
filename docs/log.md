@@ -329,6 +329,8 @@ app-web の rewrites が web-product の本番デプロイへ中継し、web-pro
 - **www と apex の向きを逆にすると、サインインが黙って壊れる。** Supabase の
   Redirect URLs に登録したのは apex 版だけ。www で開かれると `redirect_to` が
   一致せず Site URL（`api.universal-io.com`）へ落ちる。2026-07 に `?next=` で
-  踏んだのと同じ穴で、原因が違うだけ
+  踏んだのと同じ穴で、原因が違うだけ。**実際に踏んだ** — 移行直後に www を
+  Production にしたため、ログイン後 `api.universal-io.com/auth#` に着地した。
+  apex を Production、www を308に直して解消
 - **`robots.txt` は basePath 配下に置けない。** web-product にあった `robots.ts` は
   `/product/robots.txt` として配信され、誰も読まない。ルートを持つ app-web へ移した
