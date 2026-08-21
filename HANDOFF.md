@@ -26,18 +26,30 @@
 - [ ] コンパニオンで「画面全体」を共有し、PCを普通に使いながら手元の端末に映るか
 - [ ] `/product` から「ブラウザで今すぐ使う」でアプリに来られるか
 
-## 🟡 別リポジトリに未修正の不具合がある（web-product）
+## 🟡 web-product に未デプロイのコミットがある
 
-**製品サイトは自分の指定フォントを適用できていない。** 本文が Geist + Noto Sans JP
-ではなく Tailwind 既定の `ui-sans-serif` で描画されている（本番・ローカルとも）。
-next/font の変数を `<body>` に置いているが、Tailwind v4 の `@theme` は `--font-sans`
-を `:root`（=`<html>`）に出力するため、`:root` から `var(--font-geist-sans)` が
-見えず値ごと無効になる。実測と根拠は [README](README.md)「デザインは製品サイトを
-正本とする」と [log.md](docs/log.md)。
+**製品サイトのフォントの不具合を直した**（`459a52f`・ローカル検証済み・未push）。
+指定フォントが一度も適用されておらず、サイト全体が Tailwind 既定の
+`ui-sans-serif` で描画されていた。next/font の変数が `<body>` にあったため。
 
-**直し方は1行**（`src/app/[locale]/layout.tsx` のフォントのクラスを `<body>` から
-`<html>` へ移す）。**app-web 側は正しいので、直すと両者が画素単位で一致する**
-（CTA幅 188px → 196px = app-web と同じ）。別リポジトリなので触っていない。
+**`main` への push は `universal-io.com` の本番デプロイ**で、サイト全体の
+書体が変わる公開変更なので、そこで止めてある。push すれば app-web と
+画素単位で一致する（実測: CTA幅 188px → 196px = app-web と同じ）。
+
+```bash
+git -C /Users/kaya.matsumoto/projects/universal-io/web-product push origin main
+```
+
+**web-product の git は必ず `-C` を使う**（同リポジトリの AGENTS.md）。
+
+### 同じ調査で見つけた別の不具合（未修正・スコープ外）
+
+`/product/[locale]/vision` にハイドレーション不一致がある。`IOLogo` の
+`useReducedMotion()` がサーバー（null → 静的なグラデーション）とクライアント初回
+（false → スキャン用グラデーション）で食い違い、SVGの `<defs>` が一致しない。
+コメントは「`=== false` で初回描画は静的に保たれる」と書いているが、実測では
+初回から `false` が返っている。**フォントの修正とは無関係**（修正前から再現）。
+vision は `robots: noindex` の参考ページなので急がない。
 
 ## 済んだこと
 
