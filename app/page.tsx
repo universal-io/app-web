@@ -24,6 +24,8 @@ import { createSharerPeer } from "@/lib/peer";
 import { createRoomId, formatRoomId, joinRoom, type RoomConnection } from "@/lib/room";
 import { accessToken, ensureProvisioned, signInWithGoogle } from "@/lib/session";
 import { Account, useAccount } from "@/app/auth";
+import { SiteFooter, SiteHeader } from "@/app/chrome";
+import { ExplainDemo } from "@/app/demo";
 import { useErrorText, usePeerErrorText } from "@/app/errors";
 import { outputLanguageFor } from "@/lib/i18n/routing";
 import { Join } from "@/app/join";
@@ -73,6 +75,7 @@ function Home() {
   const errorText = useErrorText();
   const peerErrorText = usePeerErrorText();
   const t = useTranslations("app");
+  const th = useTranslations("hero");
   const tCap = useTranslations("capture");
   const tc = useTranslations("companion");
   const tAuth = useTranslations("auth");
@@ -753,8 +756,10 @@ function Home() {
     // the one thing it can be here: the watching side.
     return (
       <Shell>
-        <header className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-[-0.02em]">{t("name")}</h1>
+        <header className="space-y-2">
+          {/* The same question the desktop page asks. This device cannot host
+              the demo that answers it, but the voice stays one voice. */}
+          <h1 className="text-3xl font-semibold tracking-[-0.03em]">{th("title")}</h1>
           <p className="text-sm text-slate">{t("tagline")}</p>
         </header>
         <Join />
@@ -767,52 +772,77 @@ function Home() {
   }
 
   if (!stream) {
+    /**
+     * The front page is the demo.
+     *
+     * One question, two buttons, and the chrome — nothing else. The paragraphs
+     * that used to explain the product from here (which surface to pick, what
+     * gets sent, why sign in) moved into the demo layer's scripts: the page's
+     * premise is that pointing beats reading, so the explanations live where
+     * pointing finds them. What stays as plain text is only what somebody must
+     * know *before* the demo can be discovered — that the first press goes to
+     * Google — and the errors.
+     */
     return (
-      <Shell>
-        <header className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-[-0.02em]">{t("chooseTitle")}</h1>
-          <p className="text-sm text-slate">{t("chooseLead")}</p>
-        </header>
-        {accountError && <Notice tone="error">{accountError}</Notice>}
-        {error && <Notice tone="error">{error}</Notice>}
-        <button
-          onClick={() => void start("here")}
-          disabled={!accountReady || signingIn}
-          className="self-start rounded-[10px] bg-ink px-[18px] py-3 text-base font-semibold text-white transition-colors hover:bg-iris disabled:opacity-50"
-        >
-          {signingIn ? t("goingToGoogle") : t("choose")}
-        </button>
-        {/* Being sent to Google by a button that says nothing about it feels
-            like a malfunction; one sentence ahead of time makes it the plan. */}
-        {accountReady && !session && (
-          <p className="text-sm text-slate">{t("signInFirst")}</p>
-        )}
-        {/* The picker's three panes are the browser's, not ours: they cannot be
-            reordered or removed, and Chrome 151 ignores which one we ask it to
-            open on. So the difference between them is explained here instead,
-            in the order of how well each one works. */}
-        <div className="space-y-2 rounded-lg bg-paper px-3 py-3 text-xs leading-relaxed text-body">
-          <p>
-            {t.rich("pickerTab", { strong: (chunks) => <strong>{chunks}</strong> })}
-          </p>
-          <p>{t("pickerOther")}</p>
-          <p>{t("pickerPrivacy")}</p>
-        </div>
-        <div className="space-y-2 border-t border-line pt-6">
-          <div className="space-y-1">
-            <h2 className="text-base font-medium">{t("companionTitle")}</h2>
-            <p className="text-sm text-slate">{t("companionLead")}</p>
-          </div>
-          <button
-            onClick={() => void start("companion")}
-            disabled={!accountReady || signingIn}
-            className="rounded-[10px] border border-line px-4 py-2 text-sm font-medium text-body transition-colors hover:bg-paper disabled:opacity-50"
+      <>
+        <SiteHeader locale={locale} />
+        <ExplainDemo />
+        <main className="mx-auto flex w-full max-w-[900px] flex-1 flex-col items-center justify-center px-5 py-14 text-center sm:px-10">
+          {(accountError || error) && (
+            <div className="mb-8 w-full max-w-[480px] space-y-2 text-left">
+              {accountError && <Notice tone="error">{accountError}</Notice>}
+              {error && <Notice tone="error">{error}</Notice>}
+            </div>
+          )}
+          <h1
+            data-demo="headline"
+            className="io-fade-up text-balance text-[44px] font-semibold leading-[1.08] tracking-[-0.035em] sm:text-[64px] sm:leading-[1.05]"
           >
-            {t("companionShowQr")}
-          </button>
+            {th("title")}
+          </h1>
+          <p
+            className="io-fade-up mt-5 max-w-[520px] text-pretty text-[17px] leading-[1.6] text-body"
+            style={{ animationDelay: "0.08s" }}
+          >
+            {th("subtitle")}
+          </p>
+          <div
+            className="io-fade-up mt-9 flex w-full max-w-[420px] flex-col items-stretch gap-3.5 sm:w-auto sm:max-w-none sm:flex-row sm:items-center"
+            style={{ animationDelay: "0.16s" }}
+          >
+            <button
+              data-demo="choose"
+              onClick={() => void start("here")}
+              disabled={!accountReady || signingIn}
+              className="rounded-xl bg-ink px-7 py-[15px] text-base font-semibold text-white transition-colors hover:bg-iris disabled:opacity-50"
+            >
+              {signingIn ? t("goingToGoogle") : t("choose")}
+            </button>
+            <button
+              data-demo="companion"
+              onClick={() => void start("companion")}
+              disabled={!accountReady || signingIn}
+              className="rounded-xl border border-edge bg-white px-7 py-3.5 text-base font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
+            >
+              {th("companion")}
+            </button>
+          </div>
+          {/* Being sent to Google by a button that says nothing about it feels
+              like a malfunction; one sentence ahead of time makes it the plan. */}
+          {accountReady && !session && (
+            <p
+              className="io-fade-up mt-6 max-w-[440px] text-xs leading-relaxed text-slate"
+              style={{ animationDelay: "0.24s" }}
+            >
+              {t("signInFirst")}
+            </p>
+          )}
+        </main>
+        <div className="mx-auto w-full max-w-[900px] px-5 pb-5 sm:px-10">
+          <Account />
         </div>
-        <Account />
-      </Shell>
+        <SiteFooter locale={locale} />
+      </>
     );
   }
 

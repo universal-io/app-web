@@ -65,10 +65,10 @@ export function SiteHeader({ locale }: { locale: string }) {
   const [open, setOpen] = useState(false);
 
   const links = [
-    { href: paths.product, label: t("product") },
+    { href: paths.product, label: t("product"), demo: "product" },
     // Somebody deciding whether to pay should be able to reach the terms of
     // that decision from anywhere on the site.
-    { href: paths.pricing, label: t("pricing") },
+    { href: paths.pricing, label: t("pricing"), demo: "pricing" },
   ];
 
   useEffect(() => {
@@ -96,6 +96,7 @@ export function SiteHeader({ locale }: { locale: string }) {
         <Link
           href="/"
           onClick={() => setOpen(false)}
+          data-demo="logo"
           className="flex items-baseline gap-2.5 text-ink"
         >
           <Wordmark className="text-[19px] font-bold tracking-[-0.02em]" />
@@ -110,14 +111,20 @@ export function SiteHeader({ locale }: { locale: string }) {
             <a
               key={l.href}
               href={l.href}
+              data-demo={l.demo}
               className="text-sm font-medium text-body transition-colors hover:text-ink"
             >
               {l.label}
             </a>
           ))}
-          <LanguageSwitcher />
+          {/* Wrapped rather than edited: the switcher is a verbatim copy of the
+              product site's, and the demo target belongs to this page. */}
+          <div data-demo="lang">
+            <LanguageSwitcher />
+          </div>
           <a
             href={MACOS_DOWNLOAD_URL}
+            data-demo="macos"
             className="rounded-[10px] bg-ink px-[18px] py-2.5 text-sm font-semibold text-white transition-colors hover:bg-iris"
           >
             {t("cta")}
@@ -221,7 +228,7 @@ export function SiteFooter({ locale }: { locale: string }) {
           <Wordmark className="text-base font-bold" />
           <span className="font-mono text-xs text-faint">{t("domain")}</span>
         </div>
-        <nav className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <nav data-demo="legal" className="flex flex-wrap items-center gap-x-6 gap-y-2">
           {legalLinks.map((l) => (
             <a
               key={l.href}

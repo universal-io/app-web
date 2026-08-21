@@ -132,5 +132,61 @@
   "peerError": {
     "no-direct-path": "The two devices couldn't connect directly. Check that they're on the same Wi-Fi (connecting across networks needs a relay server, which isn't set up yet).",
     "connect-timeout": "The connection took too long. Check that both devices are on the same Wi-Fi."
+  },
+  "hero": {
+    "title": "Where are you stuck?",
+    "subtitle": "Choose a screen, and it explains whatever you point at.",
+    "companion": "Watch on a phone or tablet"
+  },
+  "demo": {
+    "badge": "demo",
+    "blank": "There's nothing here. Being able to say \"nothing\" is part of the job.",
+    "targets": {
+      "headline": {
+        "e": "This question is the whole app. Point at anything you don't understand, and an explanation appears — like this.",
+        "q": "Is this one real?",
+        "a": "This is a scripted demo. The real thing is behind “Choose a screen”, and it does this to your screen."
+      },
+      "choose": {
+        "e": "The real thing starts here. Pick one of your screens and it appears on this page.",
+        "q": "Which should I pick?",
+        "a": "“Chrome Tab” works best — you can watch and ask without ever leaving this page."
+      },
+      "companion": {
+        "e": "Turns a phone or tablet into a second pair of eyes. Scan the QR and your screen appears in your hand.",
+        "q": "Can I keep using the computer?",
+        "a": "Yes. Work on the computer, ask from the device in your hand."
+      },
+      "logo": {
+        "e": "This is the logo. I//O means Input/Output — a name for standing between people and computers.",
+        "q": "What's the // in the middle?",
+        "a": "The wall between input and output. That's where we work."
+      },
+      "product": {
+        "e": "A link to the product site. The thinking and the mechanics are explained over there.",
+        "q": "And the page I'm on now?",
+        "a": "The app itself. You can try it before reading anything."
+      },
+      "pricing": {
+        "e": "A link to pricing. It sits where you can read it before you buy.",
+        "q": "Can I try it for free?",
+        "a": "Sign in with Google and you can use it right from this screen."
+      },
+      "lang": {
+        "e": "The language switch. The page and the AI's answers change language together.",
+        "q": "What if I pick Japanese?",
+        "a": "The answers come back in Japanese too. Your choice is remembered for next time."
+      },
+      "macos": {
+        "e": "The macOS download. The native app can read your screen's real coordinates.",
+        "q": "How is it different from the web?",
+        "a": "On a Mac, answers land directly on top of your actual screen. For deep use, this is the one."
+      },
+      "legal": {
+        "e": "Company, privacy, terms, commerce disclosure — placed where you can read them before paying.",
+        "q": "Is my screen stored?",
+        "a": "No. Only the one frame you ask about is sent, and neither images nor answers are kept."
+      }
+    }
   }
 }
