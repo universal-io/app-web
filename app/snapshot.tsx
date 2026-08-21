@@ -33,11 +33,14 @@ type Props = {
   annotations: Annotation[];
   onPointer: (pointer: Pointer | null, stroke: Point[] | null) => void;
   stroke: Point[] | null;
+  /** While the answer is being read, the mark itself pulses: the first proof
+   * that the tap was heard has to be at the place that was tapped. */
+  thinking?: boolean;
 };
 
 export type Point = { x: number; y: number };
 
-export function Snapshot({ capture, pointer, annotations, onPointer, stroke }: Props) {
+export function Snapshot({ capture, pointer, annotations, onPointer, stroke, thinking = false }: Props) {
   const t = useTranslations("app");
   const containerRef = useRef<HTMLDivElement>(null);
   const [drawing, setDrawing] = useState<Point[] | null>(null);
@@ -92,7 +95,11 @@ export function Snapshot({ capture, pointer, annotations, onPointer, stroke }: P
           <div
             className="pointer-events-none absolute h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-cyan"
             style={{ left: `${pointer.point.x * 100}%`, top: `${pointer.point.y * 100}%` }}
-          />
+          >
+            {thinking && (
+              <span className="absolute -inset-0.5 animate-ping rounded-full border-2 border-cyan/70 motion-reduce:hidden" />
+            )}
+          </div>
         )}
 
         {annotations.map((annotation) => (

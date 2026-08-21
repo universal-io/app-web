@@ -36,8 +36,6 @@
     "goBackLead": "このタブに戻ってくると、あなたが見ていた画面がここに映ります。",
     "loadingShared": "共有した画面を読み込んでいます…",
     "candidates": "別の画面について聞くときは選んでください（新しい順・←→キーでも移動できます）",
-    "hintPoint": "分からないところをクリック、または囲んでください。そのまま質問を書いても聞けます。",
-    "dragToMove": "ドラッグで移動できます",
     "retake": "いまの画面を取り直す",
     "watchOnPhone": "スマホ・タブレットで見る",
     "stopSharing": "共有をやめる",
@@ -47,9 +45,11 @@
     "placeholder": "質問（指すだけでも聞けます）",
     "send": "聞く",
     "sending": "…",
+    "reading": "読んでいます…",
     "usedSkill": "使った知識: {name}",
     "seconds": "{value}秒",
-    "pointedHere": "（画面のこの場所を指した）"
+    "pointedHere": "（画面のこの場所を指した）",
+    "close": "閉じる"
   },
   "join": {
     "title": "共有された画面を見る",

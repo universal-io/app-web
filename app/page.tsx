@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import QRCode from "qrcode";
 import { askVision, type Pointer, type VisionSuccess } from "@/lib/gateway";
@@ -31,19 +31,14 @@ import { outputLanguageFor } from "@/lib/i18n/routing";
 import { Join } from "@/app/join";
 import { Notice, Shell, useMounted } from "@/app/ui";
 import { markFrom, Snapshot, Stroke, type Point } from "@/app/snapshot";
-import { AnswerPanel, QuestionInput } from "@/app/ask";
+import { ExchangeBubble, placeBeside, write, type Rect } from "@/app/bubble";
+import { spotMask, WASH_STYLE } from "@/app/wash";
 
 type Turn = { role: "user" | "assistant"; text: string };
 
-/**
- * The hole the spotlight cuts in the wash.
- *
- * A held-clear core to just past half the radius, then a short ramp: an even
- * fade from the centre reads as haze rather than as a light aimed at something.
- */
-const SPOT_MASK =
-  "radial-gradient(circle 260px at var(--x, 50%) var(--y, 50%)," +
-  " transparent 0%, transparent 56%, #000 82%, #000 100%)";
+/** The spotlight at the mirror's scale, with the long shared falloff around
+ * its held-clear core (app/wash.ts). */
+const SPOT_MASK = spotMask(672);
 
 /**
  * The product. This URL is the whole thing.
@@ -128,8 +123,15 @@ function Home() {
   const [mark, setMark] = useState<{ capture: Capture; pointer: Pointer | null; stroke: Point[] | null } | null>(null);
   const [answer, setAnswer] = useState<{ value: VisionSuccess; capture: Capture } | null>(null);
   const [question, setQuestion] = useState("");
+  /** The typed question the bubble is answering, apart from the next draft. */
+  const [asked, setAsked] = useState<string | null>(null);
+  /** Send-to-answer, measured where the user actually waited (pointing.md §5). */
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
+  /** Which send the bubble is waiting on. Closing it abandons older ones, so a
+   * late answer cannot reopen a bubble the user has already put away. */
+  const sendSeq = useRef(0);
   const [videoSize, setVideoSize] = useState<{ w: number; h: number } | null>(null);
   const [report, setReport] = useState<RecentScreensReport | null>(null);
   const [debug] = useState(
@@ -153,9 +155,10 @@ function Home() {
 
   const stageRef = useRef<HTMLDivElement>(null);
   const spotlightRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  /** null means the corner it starts in; a point means the user moved it. */
-  const [panelAt, setPanelAt] = useState<{ x: number; y: number } | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  /** Set once the bubble has been dragged; cleared when a new mark is made. */
+  const movedRef = useRef(false);
   const grabbedAt = useRef<{ dx: number; dy: number } | null>(null);
   const [stage, setStage] = useState<{ w: number; h: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -206,8 +209,9 @@ function Home() {
   })();
   const belongsToCurrent = mark !== null && mark.capture === currentCapture;
   const pointer = belongsToCurrent ? mark.pointer : null;
-  /** The wash and spotlight are up only until something has been pointed at. */
-  const guiding = pointer === null;
+  /** The wash and spotlight are up only until something has been asked —
+   * pointed at, or typed into the bottom bubble. */
+  const guiding = pointer === null && answer === null && !busy;
 
   /**
    * Whether this window is the one the cursor is actually being reported to.
@@ -310,8 +314,9 @@ function Home() {
     setAnswer(null);
     setTurns([]);
     setQuestion("");
+    setAsked(null);
+    setElapsedMs(null);
     setReport(null);
-    setPanelAt(null);
   }, [stream, stopCompanion]);
 
   const start = useCallback(async (intent: "here" | "companion") => {
@@ -499,8 +504,11 @@ function Home() {
     const asked = input.question.trim();
     if (!asked && !input.pointer) return;
 
+    const seq = ++sendSeq.current;
     setBusy(true);
     setError(null);
+    setAsked(asked || null);
+    const started = performance.now();
     try {
       const imageBase64 = await withPointerMark(input.capture, input.pointer, input.stroke);
       const response = await askVision({
@@ -512,7 +520,11 @@ function Home() {
         turns: input.history,
         outputLanguage: outputLanguageFor(locale),
       });
+      // A bubble closed mid-wait has said "never mind"; the late answer must
+      // not reopen it.
+      if (sendSeq.current !== seq) return;
       setAnswer({ value: response, capture: input.capture });
+      setElapsedMs(performance.now() - started);
       // The user's side is always recorded, even when they only pointed: a
       // history of assistant messages with nothing prompting them reads as the
       // model talking to itself, and it answers accordingly.
@@ -523,9 +535,10 @@ function Home() {
       ]);
       setQuestion("");
     } catch (caught) {
+      if (sendSeq.current !== seq) return;
       setError(errorText(caught, tErr("generic")));
     } finally {
-      setBusy(false);
+      if (sendSeq.current === seq) setBusy(false);
     }
   }, [session, tAuth, tAsk, tErr, locale, errorText]);
 
@@ -538,6 +551,7 @@ function Home() {
    */
   const point = useCallback((next: Pointer | null, drawn: Point[] | null) => {
     if (!currentCapture) return;
+    movedRef.current = false;
     setMark({ capture: currentCapture, pointer: next, stroke: drawn });
     setAnswer(null);
     setTurns([]);
@@ -582,51 +596,36 @@ function Home() {
   const pendingRef = useRef<Promise<Capture | null> | null>(null);
 
   /**
-   * Dragging the panel out of the way.
+   * Done with this bubble: Esc and clicking the empty stage both land here.
    *
-   * Kept inside the window on every move rather than only at the end: a panel
-   * dropped past the edge cannot be dragged back, and there is no other way to
-   * reach it.
+   * There is no drag handle and no move affordance — a bubble that sits beside
+   * whatever was pointed at is moved by pointing somewhere else, which the user
+   * already knows how to do. On a watched tab, putting the bubble away also
+   * puts the moving picture back: the still existed only to be asked about.
    */
-  const clampPanel = useCallback((x: number, y: number) => {
-    const element = panelRef.current;
-    const width = element?.offsetWidth ?? 0;
-    const height = element?.offsetHeight ?? 0;
-    return {
-      x: Math.min(Math.max(x, 8), Math.max(8, window.innerWidth - width - 8)),
-      y: Math.min(Math.max(y, 8), Math.max(8, window.innerHeight - height - 8)),
-    };
-  }, []);
+  const close = useCallback(() => {
+    sendSeq.current += 1;
+    movedRef.current = false;
+    setBusy(false);
+    setMark(null);
+    setAnswer(null);
+    setTurns([]);
+    setQuestion("");
+    setAsked(null);
+    setError(null);
+    if (watched) setFrozen(null);
+  }, [watched]);
 
-  const onPanelDragStart = useCallback((event: React.PointerEvent) => {
-    if (!event.isPrimary || !panelRef.current) return;
-    const rect = panelRef.current.getBoundingClientRect();
-    grabbedAt.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    // Freeze it where it already is, so the first movement does not jump it
-    // from the corner it was anchored to.
-    setPanelAt(clampPanel(rect.left, rect.top));
-  }, [clampPanel]);
+  const exchangeOpen = pointer !== null || answer !== null || busy || asked !== null;
 
-  const onPanelDragMove = useCallback((event: React.PointerEvent) => {
-    const grabbed = grabbedAt.current;
-    if (!grabbed) return;
-    setPanelAt(clampPanel(event.clientX - grabbed.dx, event.clientY - grabbed.dy));
-  }, [clampPanel]);
-
-  const onPanelDragEnd = useCallback(() => {
-    grabbedAt.current = null;
-  }, []);
-
-  // A window that shrinks can strand the panel off screen, where nothing can
-  // reach it. Pull it back rather than leaving the user to reload.
   useEffect(() => {
-    function onResize() {
-      setPanelAt((at) => (at ? clampPanel(at.x, at.y) : at));
+    if (!exchangeOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape" && !event.isComposing) close();
     }
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [clampPanel]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [exchangeOpen, close]);
 
   /**
    * Moves the spotlight.
@@ -685,6 +684,7 @@ function Home() {
     pendingRef.current = null;
     if (!capture) return;
     const mark = markFrom(drawn);
+    movedRef.current = false;
     setFrozen(capture);
     setMark({ capture, pointer: mark.pointer, stroke: mark.stroke });
     // Pointing somewhere new is a new subject, on live video as on a still.
@@ -716,6 +716,7 @@ function Home() {
     setAnswer(null);
     setTurns([]);
     setQuestion("");
+    setAsked(null);
     // A watched tab has a moving picture to fall back to; the others have to be
     // taken again, and clearing the still first would blank the screen.
     if (watched) setFrozen(null);
@@ -746,6 +747,105 @@ function Home() {
     () => (answer && answer.capture === currentCapture ? answer.value.result.annotations : []),
     [answer, currentCapture],
   );
+
+  /**
+   * Where the anchored bubble goes.
+   *
+   * The pointed-at place is normalized 0-1 in the picture, and becomes pixels
+   * through the box the picture actually occupies — the same conversion the
+   * marks and boxes go through, read from the same element, so the bubble
+   * cannot drift from the ring it belongs to (pointing.md §2.2: one
+   * conversion, never a second formula). placeBeside() then keeps it off the
+   * target, off the answer's own boxes, and on screen.
+   */
+  const placeBubble = useCallback(() => {
+    const element = bubbleRef.current;
+    // Dragged by hand: the hand wins until the subject changes.
+    if (!element || movedRef.current) return;
+    const size = { w: element.offsetWidth, h: element.offsetHeight };
+    const box = boxRef.current?.getBoundingClientRect();
+    if (!pointer || !box) {
+      // Nothing pointed at, so nothing to sit beside: the bubble waits along
+      // the bottom, where a question with no place on the picture belongs.
+      write(element, {
+        left: (window.innerWidth - size.w) / 2,
+        top: window.innerHeight - size.h - 16,
+      });
+      return;
+    }
+    const target: Rect =
+      pointer.kind === "point"
+        ? {
+            left: box.left + pointer.point.x * box.width - 14,
+            top: box.top + pointer.point.y * box.height - 14,
+            width: 28,
+            height: 28,
+          }
+        : {
+            left: box.left + pointer.region.x * box.width,
+            top: box.top + pointer.region.y * box.height,
+            width: pointer.region.w * box.width,
+            height: pointer.region.h * box.height,
+          };
+    const drawn = annotations.map((annotation) => ({
+      left: box.left + annotation.box.x * box.width,
+      top: box.top + annotation.box.y * box.height,
+      width: annotation.box.w * box.width,
+      height: annotation.box.h * box.height,
+    }));
+    write(element, placeBeside(target, size, drawn, { w: window.innerWidth, h: window.innerHeight }));
+  }, [pointer, annotations]);
+
+  // Before paint on every new mark, and again whenever the bubble changes size
+  // (the answer landing) or the window does. The node mounts hidden, so it
+  // never flashes at a stale position.
+  useLayoutEffect(() => {
+    placeBubble();
+  }, [placeBubble]);
+
+  useEffect(() => {
+    const element = bubbleRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(placeBubble);
+    observer.observe(element);
+    window.addEventListener("resize", placeBubble);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", placeBubble);
+    };
+  }, [placeBubble]);
+
+  /**
+   * Moving the bubble out of the way.
+   *
+   * Beside the pointed-at place is the right answer often enough to be the
+   * default, and not often enough to be the only option: sometimes the thing
+   * you want to read is exactly where the reply landed. So it can be picked up
+   * — and picking it up wins until the subject changes, at which point the
+   * bubble goes back to following the mark.
+   *
+   * Kept inside the window on every move rather than only at the end: dropped
+   * past the edge it could never be reached again.
+   */
+  const onGrab = useCallback((event: React.PointerEvent) => {
+    const element = bubbleRef.current;
+    if (!element || !event.isPrimary) return;
+    const rect = element.getBoundingClientRect();
+    grabbedAt.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    movedRef.current = true;
+  }, []);
+
+  const onGrabMove = useCallback((event: React.PointerEvent) => {
+    const grabbed = grabbedAt.current;
+    const element = bubbleRef.current;
+    if (!grabbed || !element) return;
+    write(element, { left: event.clientX - grabbed.dx, top: event.clientY - grabbed.dy });
+  }, []);
+
+  const onGrabEnd = useCallback(() => {
+    grabbedAt.current = null;
+  }, []);
 
   if (!mounted) return <Shell><p className="text-slate">{t("loading")}</p></Shell>;
 
@@ -896,7 +996,16 @@ function Home() {
         the area and then put the still in a scrolling full-width container,
         and every tap appeared to land in the wrong place because the target
         moved at the moment of the tap. */}
-      <div ref={stageRef} className="relative flex min-h-0 flex-1 items-center justify-center p-2">
+      <div
+        ref={stageRef}
+        onPointerDown={(event) => {
+          // The stage's own padding is "outside the picture": clicking there
+          // puts the bubble away (pointing.md §3). Anything on top of it — the
+          // picture, the bubble, the buttons — is the event's target instead.
+          if (event.target === event.currentTarget) close();
+        }}
+        className="relative flex min-h-0 flex-1 items-center justify-center"
+      >
         {/* Two small icons in the corner rather than a bar of labelled buttons.
             The bar cost a strip of the picture for controls nobody reaches for:
             the usual way to finish here is to close the tab. */}
@@ -942,6 +1051,7 @@ function Home() {
         </div>
 
         <div
+          ref={boxRef}
           className="relative select-none"
           style={{ ...fitted, touchAction: "pinch-zoom" }}
         onPointerDown={showingLive ? onLiveDown : undefined}
@@ -972,6 +1082,7 @@ function Home() {
               stroke={stroke}
               annotations={annotations}
               onPointer={point}
+              thinking={busy}
             />
           </div>
         )}
@@ -992,28 +1103,11 @@ function Home() {
             aria-hidden
             className="pointer-events-none absolute inset-0"
             style={{
-              // Two layers: a warm-white glow that reads as light falling on the
-              // spot, over a blue wash with a soft hole punched in it. A hole
-              // alone was too quiet to notice — the eye needs something to be
-              // brighter, not merely less dimmed.
-              // Dimming, not tinting.
-              //
-              // This began as a translucent blue with a hole in it, and a white
-              // glow in the hole to read as light. Over a dark page it inverted:
-              // blue over near-black *lightens* it, so the surroundings barely
-              // changed while the glow fogged the one place the user was trying
-              // to look. Our own colour scheme was never the variable — the
-              // brightness of somebody else's screen was, and that is not
-              // something to have an opinion about.
-              //
-              // A backdrop filter is relative to whatever is underneath, so it
-              // darkens a white page and a black one alike. The mask cuts the
-              // whole overlay away inside the spot, which leaves the target
-              // untouched rather than lit — nothing is added to the thing being
-              // examined.
-              backdropFilter: "brightness(0.72) saturate(0.85)",
-              WebkitBackdropFilter: "brightness(0.72) saturate(0.85)",
-              background: "rgba(91,92,255,0.16)",
+              // The construction — backdrop dim, iris tint, dot lattice, long
+              // eased falloff — lives in app/wash.ts, shared with the
+              // front-page demo so the two can never drift apart. So do the
+              // lessons that shaped it (why dimming is a filter, not a paint).
+              ...WASH_STYLE,
               maskImage: focused ? SPOT_MASK : undefined,
               WebkitMaskImage: focused ? SPOT_MASK : undefined,
               transition: "mask-image 120ms linear",
@@ -1041,7 +1135,7 @@ function Home() {
       )}
 
       {buffered && screens.length > 1 && (
-        <div className="fixed bottom-4 left-4 z-30 max-w-[min(28rem,calc(100vw-28rem))] space-y-1 rounded-xl bg-carbon/80 p-2 text-white backdrop-blur">
+        <div className="fixed bottom-4 left-4 z-30 max-w-[min(28rem,calc(50vw-12rem))] space-y-1 rounded-xl bg-carbon/80 p-2 text-white backdrop-blur">
           <p className="text-[11px] text-white/40">{t("candidates")}</p>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {screens.map((screen, at) => (
@@ -1060,45 +1154,30 @@ function Home() {
         </div>
       )}
 
-      {/* The panel floats instead of taking a strip along the bottom, because
-          the bottom of a screenshot is part of the screenshot: a bar there
-          covers exactly the thing somebody may want to ask about. Bottom-right
-          is where people already expect a helper to sit, and it can be dragged
-          anywhere when it is the wrong place. */}
+      {/* The exchange, beside the thing it is about (docs/pointing.md). The
+          answer used to live in a floating corner panel, and the eye had to
+          travel between the ring and the panel for every reply; now the reply
+          sits next to the pointed-at place, the way the front-page demo already
+          answers. When nothing has been pointed at, the same bubble waits at
+          the bottom centre as just its input box — a typed question with no
+          mark belongs to no particular spot on the picture (§3). */}
       <div
-        ref={panelRef}
-        style={panelAt ? { left: panelAt.x, top: panelAt.y } : { right: 16, bottom: 16 }}
-        className="fixed z-30 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/10 bg-carbon/90 text-white shadow-2xl backdrop-blur"
+        ref={bubbleRef}
+        className="fixed z-30"
+        style={{ left: 0, top: 0, visibility: "hidden" }}
       >
-        <div
-          onPointerDown={onPanelDragStart}
-          onPointerMove={onPanelDragMove}
-          onPointerUp={onPanelDragEnd}
-          onPointerCancel={onPanelDragEnd}
-          className="flex cursor-grab items-center gap-2 px-3 py-2 active:cursor-grabbing"
-          style={{ touchAction: "none" }}
-        >
-          <svg viewBox="0 0 24 24" className="h-4 w-4 text-white/40" fill="currentColor" aria-hidden>
-            <circle cx="9" cy="7" r="1.4" /><circle cx="15" cy="7" r="1.4" />
-            <circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" />
-            <circle cx="9" cy="17" r="1.4" /><circle cx="15" cy="17" r="1.4" />
-          </svg>
-          <span className="text-xs text-white/40">{t("dragToMove")}</span>
-        </div>
-
-        <div className="space-y-2 px-3 pb-3">
-          {error && <Notice tone="error">{error}</Notice>}
-          {answer && <AnswerPanel answer={answer.value} />}
-          {!answer && (
-            <p className="text-xs text-white/50">{t("hintPoint")}</p>
-          )}
-          <QuestionInput
-            value={question}
-            onChange={setQuestion}
-            onSubmit={showingLive ? askAboutLive : ask}
-            busy={busy}
-          />
-        </div>
+        <ExchangeBubble
+          asked={asked}
+          answer={answer?.capture === currentCapture ? answer.value : null}
+          elapsedMs={elapsedMs}
+          busy={busy}
+          error={error}
+          question={question}
+          onQuestion={setQuestion}
+          onSubmit={showingLive ? askAboutLive : ask}
+          onClose={close}
+          grip={{ onGrab, onGrabMove, onGrabEnd }}
+        />
       </div>
     </div>
   );

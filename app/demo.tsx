@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useTranslations } from "next-intl";
+import { spotMask, WASH_STYLE } from "@/app/wash";
 
 /**
  * The front page answering its own question.
@@ -20,11 +21,10 @@ import { useTranslations } from "next-intl";
  * questioned or corrected — so the bubble wears a small "デモ" badge rather
  * than passing the script off as an answer.
  *
- * The interaction is also a preview of where the real UI is headed: explain
- * what the pointer rests on, not only what gets clicked, and answer beside the
- * thing rather than in a panel somewhere else. When the product catches up,
- * this page stops being a metaphor — the requirements for that are in
- * docs/pointing.md.
+ * The real UI now answers the same way — a bubble beside the pointed-at
+ * place, docs/pointing.md — and shares this layer's wash (app/wash.ts). What
+ * stays demo-only is answering on mere hover: the product answers on a click,
+ * because a real model call costs money per pass (pointing.md §6).
  *
  * Only pointers that can hover get any of this. On touch there is no
  * rollover to speak, and the wash would just sit dark over the page.
@@ -44,11 +44,9 @@ function useCanHover(): boolean {
   );
 }
 
-/** Matches the real mirror's spotlight: a held-clear core, then a short ramp —
- * an even fade reads as haze rather than as a light aimed at something. */
-const SPOT_MASK =
-  "radial-gradient(circle 200px at var(--x, 50%) var(--y, 50%)," +
-  " transparent 0%, transparent 55%, #000 85%, #000 100%)";
+/** The mirror's spotlight, smaller here: the targets on this page are single
+ * elements rather than a whole shared screen (app/wash.ts). */
+const SPOT_MASK = spotMask(504);
 
 /** How the exchange advances: the explanation types, the question pops in
  * whole (people don't watch themselves type), the answer types, and then it
@@ -124,10 +122,8 @@ export function ExplainDemo() {
         aria-hidden
         className="pointer-events-none fixed inset-0 z-[60] transition-opacity duration-500"
         style={{
+          ...WASH_STYLE,
           opacity: awake ? 1 : 0,
-          backdropFilter: "brightness(0.82) saturate(0.9)",
-          WebkitBackdropFilter: "brightness(0.82) saturate(0.9)",
-          background: "rgba(91,92,255,0.10)",
           maskImage: SPOT_MASK,
           WebkitMaskImage: SPOT_MASK,
         }}

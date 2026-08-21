@@ -36,8 +36,6 @@
     "goBackLead": "When you come back to this tab, the screen you were looking at appears here.",
     "loadingShared": "Loading the screen you shared…",
     "candidates": "To ask about a different screen, pick it here (newest first — the ← → keys work too)",
-    "hintPoint": "Click what you don't understand, or circle it. You can also just type a question.",
-    "dragToMove": "Drag to move",
     "retake": "Retake the screen as it is now",
     "watchOnPhone": "Watch on a phone or tablet",
     "stopSharing": "Stop sharing",
@@ -47,9 +45,11 @@
     "placeholder": "Ask a question (pointing is enough)",
     "send": "Ask",
     "sending": "…",
+    "reading": "Reading the screen…",
     "usedSkill": "Knowledge used: {name}",
     "seconds": "{value}s",
-    "pointedHere": "(pointed at this place on the screen)"
+    "pointedHere": "(pointed at this place on the screen)",
+    "close": "Close"
   },
   "join": {
     "title": "Watch a shared screen",

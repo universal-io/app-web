@@ -149,6 +149,10 @@ async function stubGateway(page) {
   await page.route("**/ai/vision", async (route) => {
     const body = route.request().postDataJSON();
     sent.push(body);
+    // A beat of latency, so the "reading…" state exists long enough to be
+    // seen — the real Gateway takes seconds, and instant answers would leave
+    // the waiting UI untested.
+    await new Promise((resolve) => setTimeout(resolve, 600));
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -334,10 +338,20 @@ console.log("\n[タブを共有・フォーカス保持]");
   // first move — and gets out of the way once it has been made.
   const spotlight = page.locator("div[data-guide]");
   check((await spotlight.count()) === 1, "指す前はカバーとスポットライトが出ている");
-  // Dimming has to be relative to whatever is underneath, or a dark page comes
-  // out lighter instead of darker.
-  const dims = await spotlight.evaluate((el) => el.style.backdropFilter || "");
-  check(dims.includes("brightness"), "カバーは中身を暗くする（色を乗せるだけではない）", dims);
+  // The wash is paint, not a filter: a tint and a lattice, and nothing that
+  // touches the brightness of what shows through. It was a dimming filter once
+  // — the version before that laid blue over the picture and inverted on dark
+  // pages — and the two were weighed against each other by measurement before
+  // this one was chosen (log.md 2026-08-22).
+  const paint = await spotlight.evaluate((el) => el.style.background || "");
+  check(/rgba\(\d+,\s*\d+,\s*\d+/.test(paint) && paint.includes("radial-gradient"),
+    "カバーはティントと格子でできている", paint.slice(0, 48) + "…");
+
+  // The core must be left completely alone. Whatever the wash is made of, the
+  // one thing the spotlight promises is that the pointed-at place is shown
+  // untouched — light it, tint it, or fog it and the promise is broken.
+  const hole = await spotlight.evaluate((el) => el.style.maskImage || el.style.webkitMaskImage || "");
+  check(/transparent\s+0%,\s*transparent\s+\d+%/.test(hole), "スポットライトの芯は完全に素のまま", hole.slice(0, 56) + "…");
 
   const live = await page.locator("video").first().boundingBox();
   await page.mouse.move(live.x + live.width / 3, live.y + live.height / 3);
@@ -381,6 +395,22 @@ console.log("\n[タブを共有・フォーカス保持]");
     "その1クリックがそのまま印になる",
   );
 
+  // The wait must be visible: between the click and the answer there is
+  // nothing but model time, and a bubble that sits silent reads as a bubble
+  // that didn't hear (pointing.md §5).
+  check(await page.locator("text=読んでいます…").isVisible(), "答えを待つ間「読んでいます…」が出る");
+
+  // The answer arrives beside the point, not in a corner panel: close enough
+  // to belong to it, far enough not to cover it (pointing.md §9).
+  {
+    const clicked = { x: live.x + live.width / 2, y: live.y + live.height / 2 };
+    const at = await page.locator("[data-bubble]").boundingBox();
+    const dx = Math.max(at.x - clicked.x, 0, clicked.x - (at.x + at.width));
+    const dy = Math.max(at.y - clicked.y, 0, clicked.y - (at.y + at.height));
+    const away = Math.hypot(dx, dy);
+    check(away >= 8 && away <= 120, "バブルは指した点の隣に出る（覆わず・離れすぎず）", `${away.toFixed(0)}px`);
+  }
+
   // Pointing at something is already the question.
   await page.waitForSelector("text=これはテストの回答です。", { timeout: 10000 });
   check(true, "指しただけで解説が走る（ボタンを押さなくてよい）");
@@ -419,7 +449,10 @@ console.log("\n[タブを共有・フォーカス保持]");
   await page.getByRole("button", { name: "いまの画面を取り直す" }).click();
   await page.waitForTimeout(300);
   sent.length = 0;
-  await page.getByPlaceholder("質問（指すだけでも聞けます）").fill("これは何ですか");
+  // No placeholder any more: the bubble sits beside the thing being asked
+  // about, which is the only prompt it needs. The words remain as the field's
+  // accessible name, so it is still announced.
+  await page.locator("[data-bubble] input").fill("これは何ですか");
   await page.getByRole("button", { name: "聞く" }).click();
   await page.waitForSelector("text=これはテストの回答です。", { timeout: 10000 });
   check(true, "「聞く」ボタンで質問が通り、回答が出る");
@@ -435,31 +468,36 @@ console.log("\n[タブを共有・フォーカス保持]");
   await page.getByRole("button", { name: "いまの画面を取り直す" }).click();
   await page.waitForTimeout(200);
 
-  // The panel floats over the picture and must be movable, because wherever it
-  // sits by default is somewhere the user may need to look.
-  const handle = page.locator("text=ドラッグで移動できます");
-  const before = await handle.boundingBox();
-  await page.mouse.move(before.x + 40, before.y + 8);
-  await page.mouse.down();
-  await page.mouse.move(before.x - 320, before.y - 220, { steps: 10 });
-  await page.mouse.up();
-  await page.waitForTimeout(200);
-  const after = await handle.boundingBox();
-  // The panel follows the grab point, so it lands offset by where it was held.
-  check(
-    Math.abs(after.x - (before.x - 360)) < 12 && Math.abs(after.y - (before.y - 228)) < 12,
-    "質問パネルをドラッグで動かせる",
-    `${Math.round(before.x)},${Math.round(before.y)} → ${Math.round(after.x)},${Math.round(after.y)}`,
-  );
+  // The grip carries no label — one that has to say it is a grip is not one —
+  // but it has to actually move the bubble, and must not be able to drop it
+  // somewhere nothing could reach it again.
+  check((await page.locator("text=ドラッグで移動できます").count()) === 0, "「ドラッグで移動」の説明は無い");
+  {
+    const card = page.locator("[data-bubble]");
+    const grip = () => page.locator("[data-bubble] span.cursor-grab").first();
+    const before = await card.boundingBox();
+    let at = await grip().boundingBox();
+    await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(at.x - 200, at.y - 150, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const after = await card.boundingBox();
+    check(
+      Math.abs(after.x - (before.x - 200)) < 14 && Math.abs(after.y - (before.y - 150)) < 14,
+      "バブルは掴んで動かせる",
+      `${Math.round(before.x)},${Math.round(before.y)} → ${Math.round(after.x)},${Math.round(after.y)}`,
+    );
 
-  // Dropped past the edge it could never be retrieved, so it is held inside.
-  await page.mouse.move(after.x + 40, after.y + 8);
-  await page.mouse.down();
-  await page.mouse.move(-500, -500, { steps: 8 });
-  await page.mouse.up();
-  await page.waitForTimeout(200);
-  const clamped = await handle.boundingBox();
-  check(clamped.x >= 0 && clamped.y >= 0, "画面の外には出せない", `${Math.round(clamped.x)},${Math.round(clamped.y)}`);
+    at = await grip().boundingBox();
+    await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(-600, -600, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const clamped = await card.boundingBox();
+    check(clamped.x >= 0 && clamped.y >= 0, "画面の外には出せない", `${Math.round(clamped.x)},${Math.round(clamped.y)}`);
+  }
 
   check(
     (await page.getByRole("button", { name: "共有をやめる" }).count()) === 1 &&
@@ -488,6 +526,61 @@ console.log("\n[タブを共有・フォーカス保持]");
     sent.some((body) => body?.input?.pointer?.kind === "region"),
     "囲んだ範囲でも解説が走る",
   );
+
+  // ── バブル（pointing.md §9） ──────────────────────────
+  const bubble = page.locator("[data-bubble]");
+  check((await bubble.count()) === 1, "バブルは1つだけ出ている");
+
+  // The ring's whole rectangle is the target, and the bubble must sit beside
+  // it, not on it — covering what was circled is answering over the question.
+  const shotBox = await page.locator('img[alt="共有された画面"]').boundingBox();
+  {
+    const ring = {
+      x: shotBox.x + shotBox.width * 0.3,
+      y: shotBox.y + shotBox.height * 0.3,
+      w: shotBox.width * 0.3,
+      h: shotBox.height * 0.3,
+    };
+    const at = await bubble.boundingBox();
+    const covers =
+      at.x < ring.x + ring.w && at.x + at.width > ring.x && at.y < ring.y + ring.h && at.y + at.height > ring.y;
+    check(!covers, "バブルは囲んだ範囲を覆わない");
+  }
+
+  // Pointing somewhere else moves the one bubble; it never multiplies.
+  {
+    const before = await bubble.boundingBox();
+    await page.mouse.click(shotBox.x + shotBox.width * 0.8, shotBox.y + shotBox.height * 0.6);
+    await page.waitForTimeout(350);
+    check((await bubble.count()) === 1, "別の場所を指してもバブルは1つのまま");
+    const after = await bubble.boundingBox();
+    check(
+      Math.abs(after.x - before.x) > 4 || Math.abs(after.y - before.y) > 4,
+      "バブルは新しい場所へ移る",
+      `${Math.round(before.x)},${Math.round(before.y)} → ${Math.round(after.x)},${Math.round(after.y)}`,
+    );
+  }
+
+  // At the edges the bubble flips inward instead of running off screen. The
+  // top-right corner is skipped down a step — the stop/QR icons live there,
+  // and this is a placement check, not a way to end the share.
+  {
+    const view = page.viewportSize();
+    let inside = true;
+    for (const [fx, fy] of [[0.03, 0.03], [0.97, 0.12], [0.03, 0.97], [0.97, 0.97]]) {
+      await page.mouse.click(shotBox.x + shotBox.width * fx, shotBox.y + shotBox.height * fy);
+      await page.waitForTimeout(300);
+      const at = await bubble.boundingBox();
+      if (at.x < 0 || at.y < 0 || at.x + at.width > view.width || at.y + at.height > view.height) inside = false;
+    }
+    check(inside, "四隅を指してもバブルは画面内に収まる");
+  }
+
+  // Esc puts the bubble away — and on a watched tab that is also the way back
+  // to the moving picture, because the still existed only to be asked about.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "Escで閉じるとライブに戻る");
 
   // Going to the shared tab and back must show how it looks now.
   await page.evaluate(() => window.__setAway(true));
