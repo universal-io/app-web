@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { useLocale } from "next-intl";
 import { SiteFooter, SiteHeader } from "@/app/chrome";
 
 /**
@@ -41,13 +42,16 @@ export function Notice({
  * own the whole screen.
  */
 export function Shell({ children }: { children: React.ReactNode }) {
+  // The chrome links across to the product site, which does put the locale in
+  // its paths — so it has to be told which language this page is being read in.
+  const locale = useLocale();
   return (
     <>
-      <SiteHeader />
+      <SiteHeader locale={locale} />
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-5 py-8 sm:px-10 sm:py-10">
         {children}
       </main>
-      <SiteFooter />
+      <SiteFooter locale={locale} />
     </>
   );
 }

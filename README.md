@@ -126,6 +126,59 @@ apex→www を308で張ってから www→apex に反転すると、以前訪れ
 「apex に CNAME は置けないから www を使う」という一般論はここでは当てはまらない。
 DNSは Cloudflare で、CNAME flattening により apex に CNAME が入って動いている。
 
+## 言語（英語が正、日本語ブラウザは日本語で着地）
+
+**アプリは単一URL。ロケールをパスに持たない。**
+`/` だけがアプリの住所で、言語は住所ではなく人に属する属性として扱う。
+これは製品サイトと意図的に違う（あちらは `/product` 英語・`/product/ja` 日本語）。
+マーケサイトは検索エンジンと共有リンクのための資産なので言語ごとに別URLが必要だが、
+アプリの**URLはインストーラーそのもの**なので、2つあってはならない。
+ChatGPT・Claude・Linear などが揃って取っている分け方と同じ。
+
+| | 決め方 |
+|---|---|
+| 明示的に選んだとき | Cookie `NEXT_LOCALE` が以後ずっと優先 |
+| 未選択のとき | `Accept-Language` を q値順に解釈して一致した言語 |
+| どちらも無いとき | **英語**（`defaultLocale`） |
+
+**リダイレクトしない。** `/` → `/ja` を張ると、CDNやブラウザがそれをキャッシュして
+全員が同じ言語に固定される。このドメインは apex↔www の永続リダイレクトで
+一度この形の事故を起こしている（[docs/log.md](docs/log.md)）。同じURLのまま
+交渉した言語で描画するので、構造的に起こらない。
+
+**代償：`/` が静的ページでなくなる**（リクエストごとに言語を決めるため）。
+このページは開いた直後に認証と `getDisplayMedia` を走らせるので、静的である価値は無い。
+
+仕組みは製品サイトと同一（`next-intl`・`messages/{en,ja}.json`・`useTranslations`）。
+違うのはルーティング戦略だけ。理由は [lib/i18n/routing.ts](lib/i18n/routing.ts) に書いてある。
+
+**ロケールをパスに入れてはいけない理由が、もう2つある。**
+
+- `/auth/callback` が動かなくなる。Supabase の Redirect URLs は文字列全体で照合し、
+  不一致は黙って Site URL（`api.universal-io.com`）へ落ちる。`/ja/auth/callback` は
+  まさにその不一致になる
+- QRの `/companion/[roomId]` が2種類になる。PC側の言語が相手のスマホに
+  引き継がれる／落ちるという問題が出る
+
+**回答の言語もこれに従う。** Gateway の `preferences.output_language` は
+ロケールから決まる（`outputLanguageFor`）。ここは日本語固定で書かれていて、
+UIが日本語しか無いうちは見えない誤りだった。
+
+### デザインは製品サイトを正本とする
+
+トークン（`ink`/`iris`/`cyan` ほか）・フォント構成・ヘッダー・フッターは
+`../web-product` の写し。**リポジトリが別なので import できない手写しのコピー**で、
+`nav.*` と `footer.*` のメッセージキーも同じものを使っている。
+片方を変えたら両方を変える。
+
+**🔴 `web-product` はフォントを適用できていない（未修正）。**
+next/font の変数を `<body>` に置いているが、Tailwind v4 の `@theme` は
+`--font-sans` を `:root`（=`<html>`）に出力するため、`:root` から
+`var(--font-geist-sans)` が見えず値ごと無効になり、Tailwind既定の
+`ui-sans-serif` に落ちている。実測でCTAの幅が 188px（app-web は 196px）。
+**app-web 側は `<html>` に置いてあるので正しい。** 直すのは web-product 側で、
+フォントのクラスを `<body>` から `<html>` へ移すだけ。
+
 ## 動かす
 
 ```bash
@@ -133,6 +186,9 @@ npm install
 cp .env.example .env.local   # Supabaseの2値を埋める
 npm run dev                  # http://localhost:7380
 ```
+
+**ブラウザの言語設定で表示言語が変わる。** 日本語で見たいのに英語で出るときは、
+ブラウザの言語設定か、ヘッダーの言語切替（Cookieに残る）を見ること。
 
 **Googleサインインが必要。** 1回の質問がモデル呼び出し1回で実費が出るため、
 アカウントに紐づけて計測する。**Mac版とまったく同じアカウント**（同一のSupabase
@@ -174,6 +230,8 @@ node scripts/measure-signature-drift.mjs       # 画面署名の実測
 ```
 
 ユーザーの Chrome を使うのでブラウザのダウンロードは不要。
+**通し検証は `locale: "ja-JP"` を指定して開いている** — 表示はブラウザの言語で
+変わるので、指定しないと日本語の文言を英語のページに突き合わせることになる。
 `/?debug` で現在のモード・取得経路・取得間隔が見える。
 
 ---

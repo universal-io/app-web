@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { supabaseBrowserClient } from "@/lib/supabase";
 import { consumeNext, currentSession, ensureProvisioned } from "@/lib/session";
 import { Notice, Shell } from "@/app/ui";
@@ -18,6 +19,7 @@ import { Notice, Shell } from "@/app/ui";
  * would only move the failure to the first question asked.
  */
 export function AuthCallback() {
+  const t = useTranslations("auth");
   const router = useRouter();
   const params = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -50,24 +52,24 @@ export function AuthCallback() {
 
     finish().catch((caught: unknown) => {
       if (cancelled) return;
-      setError(caught instanceof Error ? caught.message : "ログインを完了できませんでした。");
+      setError(caught instanceof Error ? caught.message : t("failedFinish"));
     });
 
     return () => {
       cancelled = true;
     };
-  }, [params, router]);
+  }, [params, router, t]);
 
   if (error) {
     return (
       <Shell>
         <Notice tone="error">{error}</Notice>
         <Link href="/" className="self-start rounded-[10px] border border-line px-3 py-2 text-sm text-body transition-colors hover:bg-paper">
-          最初からやり直す
+          {t("startOver")}
         </Link>
       </Shell>
     );
   }
-  return <Shell><p className="text-slate">ログインを確認しています…</p></Shell>;
+  return <Shell><p className="text-slate">{t("checking")}</p></Shell>;
 }
 

@@ -1,0 +1,136 @@
+{
+  "nav": {
+    "product": "Product",
+    "pricing": "Pricing",
+    "cta": "Download for macOS",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "language": "Language"
+  },
+  "footer": {
+    "domain": "universal-io.com",
+    "platforms": "macOS · iOS",
+    "copyright": "© 2026 Universal I/O",
+    "company": "Company",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service",
+    "commerceDisclosure": "Commerce Disclosure"
+  },
+  "app": {
+    "name": "Universal I/O",
+    "tagline": "Show it a screen and ask about whatever you can't work out.",
+    "loading": "Loading…",
+    "chooseTitle": "Choose the screen you need explained",
+    "chooseLead": "The screen you pick appears on this page. Point at anything you don't understand and ask.",
+    "choose": "Choose a screen",
+    "goingToGoogle": "Taking you to Google…",
+    "signInFirst": "Asking a question needs a Google sign-in (the same account as the Mac app). This button signs you in and brings you back.",
+    "pickerTab": "<strong>Picking from “Chrome Tab” works best.</strong> You never have to switch to that tab — it stays on this page while you watch it and ask.",
+    "pickerOther": "Windows and entire screens work too, but for those you have to go to the screen and come back.",
+    "pickerPrivacy": "Of the screens you share, only the one you ask about is sent. The rest stay inside this tab and are gone when you stop sharing.",
+    "companionTitle": "Watch on a phone or tablet",
+    "companionLead": "Mirror this screen onto the device in your hand and ask from there. You can carry on using the computer as normal. Pick “Entire Screen” and it mirrors whatever you're doing.",
+    "companionShowQr": "Show QR code",
+    "noCaptureNote": "This device can't share a screen — phone and tablet browsers don't support screen sharing. Open this page on a computer and press “Watch on a phone or tablet” to get a QR code and a code to type.",
+    "goBackTitle": "Go back to the screen you're stuck on",
+    "goBackLead": "When you come back to this tab, the screen you were looking at appears here.",
+    "loadingShared": "Loading the screen you shared…",
+    "candidates": "To ask about a different screen, pick it here (newest first — the ← → keys work too)",
+    "hintPoint": "Click what you don't understand, or circle it. You can also just type a question.",
+    "dragToMove": "Drag to move",
+    "retake": "Retake the screen as it is now",
+    "watchOnPhone": "Watch on a phone or tablet",
+    "stopSharing": "Stop sharing",
+    "sharedScreenAlt": "The shared screen"
+  },
+  "ask": {
+    "placeholder": "Ask a question (pointing is enough)",
+    "send": "Ask",
+    "sending": "…",
+    "usedSkill": "Knowledge used: {name}",
+    "seconds": "{value}s",
+    "pointedHere": "(pointed at this place on the screen)"
+  },
+  "join": {
+    "title": "Watch a shared screen",
+    "lead": "Enter the code shown on the computer.",
+    "placeholder": "Code (e.g. K3M9-P2XQ)",
+    "submit": "Watch",
+    "invalid": "Enter the 8-character code."
+  },
+  "auth": {
+    "signInWithGoogle": "Sign in with Google",
+    "goingToGoogle": "Taking you to Google…",
+    "sameAccount": "The same account as the Mac app. Sign in on either and you get the same allowance and the same history. Screen images and answers are not stored.",
+    "signedIn": "Signed in",
+    "signOut": "Sign out",
+    "sameAsMac": "Same account as the Mac app",
+    "checking": "Confirming your sign-in…",
+    "confirming": "Confirming…",
+    "startOver": "Start over",
+    "failedStart": "Couldn't start the sign-in.",
+    "failedCheck": "Couldn't check whether you're signed in.",
+    "failedProvision": "Couldn't set up your account.",
+    "failedFinish": "Couldn't complete the sign-in.",
+    "expired": "Your sign-in has expired. Please sign in again."
+  },
+  "companion": {
+    "modalTitle": "Watch on a phone or tablet",
+    "close": "Close",
+    "qrAlt": "QR code to connect",
+    "makingQr": "Making the QR code…",
+    "scanOrType": "Scan it with the camera, or open this page on the other device and type the code",
+    "autoClose": "This window closes itself once you're connected. Sharing carries on as long as this tab is open, and the computer stays usable.",
+    "stopConnection": "Stop connecting",
+    "waiting": "Waiting for the other device to connect",
+    "connecting": "Connecting…",
+    "connected": "Connected. You can ask from the other device",
+    "disconnected": "The connection dropped",
+    "failed": "Couldn't connect",
+    "closed": "Finished",
+    "roomFailed": "Couldn't create the room.",
+    "live": "Connected",
+    "waitingShort": "Waiting to connect…",
+    "askAboutThis": "Ask about this screen",
+    "backToLive": "Back to live",
+    "pinchHint": "Pinch to zoom · drag a finger to circle",
+    "shareEnded": "The share has ended.",
+    "cannotConnect": "Couldn't connect.",
+    "noFrameYet": "No picture has arrived yet. Check the connection.",
+    "noSession": "No session. Please reload the page."
+  },
+  "error": {
+    "generic": "Something went wrong."
+  },
+  "capture": {
+    "insecure-context": "Screen sharing needs HTTPS (localhost excepted).",
+    "unsupported": "This browser can't share a screen. Use Chrome, Edge, Firefox or Safari on a computer — phone and tablet browsers don't support screen sharing.",
+    "denied": "Screen sharing wasn't allowed.",
+    "no-video-track": "Couldn't get any picture from the share.",
+    "capture-failed": "Couldn't capture the screen. Check that sharing hasn't been stopped."
+  },
+  "gatewayError": {
+    "TIMEOUT": "No answer came back in time. Please try again.",
+    "ABORTED": "Cancelled.",
+    "NETWORK_ERROR": "Couldn't reach the server. Check your connection.",
+    "INVALID_RESULT": "Couldn't read the server's response.",
+    "UNAUTHENTICATED": "You need to sign in. Please sign in again.",
+    "REAUTH_REQUIRED": "You need to sign in. Please sign in again.",
+    "QUOTA_EXCEEDED": "You've reached this month's limit.",
+    "PAYMENT_REQUIRED": "Your plan doesn't include this.",
+    "RATE_LIMITED": "Things are busy right now. Please wait a moment and try again.",
+    "PROVIDER_ERROR": "The AI model didn't respond. Please wait a moment and retry."
+  },
+  "sessionError": {
+    "expired": "Your sign-in has expired. Please sign in again.",
+    "sign-in-failed": "Couldn't start the Google sign-in.",
+    "provision-failed": "Couldn't set up your account."
+  },
+  "roomError": {
+    "signaling-unreachable": "Couldn't connect to signalling."
+  },
+  "peerError": {
+    "no-direct-path": "The two devices couldn't connect directly. Check that they're on the same Wi-Fi (connecting across networks needs a relay server, which isn't set up yet).",
+    "connect-timeout": "The connection took too long. Check that both devices are on the same Wi-Fi."
+  }
+}

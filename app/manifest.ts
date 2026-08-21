@@ -11,10 +11,14 @@ import type { MetadataRoute } from "next";
  * route to a full-screen mirror on that platform.
  */
 export default function manifest(): MetadataRoute.Manifest {
+  // In English, deliberately. The manifest is one static file served to every
+  // visitor — an installed app has a single name on the Home Screen — so it
+  // says it in the language that is this product's standard, the same choice
+  // as the fallback in lib/i18n/routing.ts.
   return {
     name: "Universal I/O",
     short_name: "Universal I/O",
-    description: "いま見ている画面を、AIに見てもらう。",
+    description: "Show it a screen and ask about whatever you can't work out.",
     start_url: "/",
     display: "standalone",
     orientation: "any",

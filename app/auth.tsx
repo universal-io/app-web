@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import type { Session } from "@supabase/supabase-js";
 import { supabaseBrowserClient } from "@/lib/supabase";
 import { currentSession, ensureProvisioned, signedIn, signInWithGoogle, signOut, SessionError } from "@/lib/session";
@@ -15,6 +16,7 @@ import { Notice, Shell } from "@/app/ui";
  * account that is no longer there.
  */
 export function useAccount(): { ready: boolean; session: Session | null; error: string | null } {
+  const t = useTranslations("auth");
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +31,7 @@ export function useAccount(): { ready: boolean; session: Session | null; error: 
       })
       .catch((caught: unknown) => {
         if (cancelled) return;
-        setError(caught instanceof Error ? caught.message : "ログイン状態を確認できませんでした。");
+        setError(caught instanceof Error ? caught.message : t("failedCheck"));
         setReady(true);
       });
 
@@ -42,7 +44,7 @@ export function useAccount(): { ready: boolean; session: Session | null; error: 
       cancelled = true;
       data.subscription.unsubscribe();
     };
-  }, []);
+  }, [t]);
 
   return { ready, session, error };
 }
@@ -56,6 +58,8 @@ export function useAccount(): { ready: boolean; session: Session | null; error: 
  * registration, and saying so is worth the line it takes.
  */
 export function SignIn({ next, reason }: { next: string; reason?: string }) {
+  const t = useTranslations("auth");
+  const tApp = useTranslations("app");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,18 +69,16 @@ export function SignIn({ next, reason }: { next: string; reason?: string }) {
     try {
       await signInWithGoogle(next);
     } catch (caught) {
-      setError(caught instanceof SessionError ? caught.message : "ログインを開始できませんでした。");
+      setError(caught instanceof SessionError ? caught.message : t("failedStart"));
       setBusy(false);
     }
-  }, [next]);
+  }, [next, t]);
 
   return (
     <Shell>
       <header className="space-y-1">
-        <h1 className="text-xl font-semibold tracking-[-0.02em]">Universal I/O</h1>
-        <p className="text-sm text-slate">
-          画面を見せて、分からないところを聞けるコパイロットです。
-        </p>
+        <h1 className="text-xl font-semibold tracking-[-0.02em]">{tApp("name")}</h1>
+        <p className="text-sm text-slate">{tApp("tagline")}</p>
       </header>
 
       {reason && <Notice tone="warn">{reason}</Notice>}
@@ -93,12 +95,11 @@ export function SignIn({ next, reason }: { next: string; reason?: string }) {
           <path fill="#FBBC05" d="M3.98 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.02-2.33Z" />
           <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.02 2.33C4.68 5.16 6.66 3.58 9 3.58Z" />
         </svg>
-        {busy ? "Googleに移動しています…" : "Googleでサインイン"}
+        {busy ? t("goingToGoogle") : t("signInWithGoogle")}
       </button>
 
       <p className="max-w-lg rounded-lg bg-paper px-3 py-3 text-xs leading-relaxed text-body">
-        Mac版アプリと同じアカウントです。どちらでサインインしても、同じ利用枠と履歴になります。
-        画面の画像と回答は保存されません。
+        {t("sameAccount")}
       </p>
     </Shell>
   );
@@ -118,6 +119,8 @@ export function RequireAccount({
   next: string;
   children: (session: Session) => React.ReactNode;
 }) {
+  const t = useTranslations("auth");
+  const tApp = useTranslations("app");
   const { ready, session, error } = useAccount();
   const [provisionError, setProvisionError] = useState<string | null>(null);
 
@@ -126,14 +129,14 @@ export function RequireAccount({
     let cancelled = false;
     ensureProvisioned(session).catch((caught: unknown) => {
       if (cancelled) return;
-      setProvisionError(caught instanceof Error ? caught.message : "アカウントを準備できませんでした。");
+      setProvisionError(caught instanceof Error ? caught.message : t("failedProvision"));
     });
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [session, t]);
 
-  if (!ready) return <Shell><p className="text-slate">読み込み中…</p></Shell>;
+  if (!ready) return <Shell><p className="text-slate">{tApp("loading")}</p></Shell>;
   if (error) {
     return (
       <Shell>
@@ -160,12 +163,13 @@ export function RequireAccount({
  * asking to be distrusted.
  */
 export function Account() {
+  const t = useTranslations("auth");
   const { session } = useAccount();
   const [busy, setBusy] = useState(false);
   if (!session) return null;
   return (
     <div className="flex flex-wrap items-center gap-3 border-t border-line pt-6 text-xs text-slate">
-      <span>{session.user.email ?? "サインイン済み"}</span>
+      <span>{session.user.email ?? t("signedIn")}</span>
       <button
         onClick={() => {
           setBusy(true);
@@ -174,9 +178,9 @@ export function Account() {
         disabled={busy}
         className="underline disabled:opacity-50"
       >
-        ログアウト
+        {t("signOut")}
       </button>
-      <span className="text-faint">Mac版と同じアカウントです</span>
+      <span className="text-faint">{t("sameAsMac")}</span>
     </div>
   );
 }

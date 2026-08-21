@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import type { Annotation, Pointer } from "@/lib/gateway";
 import type { Capture } from "@/lib/screen-share";
 
@@ -37,6 +38,7 @@ type Props = {
 export type Point = { x: number; y: number };
 
 export function Snapshot({ capture, pointer, annotations, onPointer, stroke }: Props) {
+  const t = useTranslations("app");
   const containerRef = useRef<HTMLDivElement>(null);
   const [drawing, setDrawing] = useState<Point[] | null>(null);
 
@@ -81,7 +83,7 @@ export function Snapshot({ capture, pointer, annotations, onPointer, stroke }: P
         style={{ touchAction: "pinch-zoom" }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={capture.dataURL} alt="共有された画面" className="block w-full" draggable={false} />
+        <img src={capture.dataURL} alt={t("sharedScreenAlt")} className="block w-full" draggable={false} />
 
         {/* The stroke as drawn, not the rectangle derived from it. */}
         {live && <Stroke points={live} />}

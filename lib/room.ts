@@ -18,6 +18,21 @@ import { supabaseBrowserClient } from "@/lib/supabase";
  * statement than any policy text.
  */
 
+/**
+ * A room failure, carried as a code.
+ *
+ * What the user reads is written in the message catalogue so it exists in every
+ * language the app speaks (app/errors.ts); the message here is for logs.
+ */
+export class RoomError extends Error {
+  readonly code: "signaling-unreachable";
+  constructor(code: "signaling-unreachable") {
+    super("could not subscribe to the signalling channel");
+    this.name = "RoomError";
+    this.code = code;
+  }
+}
+
 export type SignalMessage =
   | { type: "offer"; sdp: string }
   | { type: "answer"; sdp: string }
@@ -81,7 +96,7 @@ export async function joinRoom(
     // Without a deadline a channel that never subscribes leaves the caller
     // waiting forever with nothing on screen to explain why.
     const timer = setTimeout(
-      () => reject(new Error("シグナリングに接続できませんでした。")),
+      () => reject(new RoomError("signaling-unreachable")),
       15_000,
     );
     channel.subscribe((status) => {

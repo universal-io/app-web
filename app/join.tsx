@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { normalizeRoomId } from "@/lib/room";
 
 /**
@@ -13,6 +14,7 @@ import { normalizeRoomId } from "@/lib/room";
  * than the app the person just launched. Typing the code always works.
  */
 export function Join({ compact = false }: { compact?: boolean }) {
+  const t = useTranslations("join");
   const router = useRouter();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +22,7 @@ export function Join({ compact = false }: { compact?: boolean }) {
   function go() {
     const code = normalizeRoomId(value);
     if (!code) {
-      setError("8文字のコードを入力してください。");
+      setError(t("invalid"));
       return;
     }
     router.push(`/companion/${code}`);
@@ -30,10 +32,8 @@ export function Join({ compact = false }: { compact?: boolean }) {
     <section className={compact ? "space-y-2" : "space-y-3"}>
       {!compact && (
         <div className="space-y-1">
-          <h2 className="text-base font-medium">共有された画面を見る</h2>
-          <p className="text-sm text-slate">
-            パソコン側に表示されているコードを入力してください。
-          </p>
+          <h2 className="text-base font-medium">{t("title")}</h2>
+          <p className="text-sm text-slate">{t("lead")}</p>
         </div>
       )}
       <div className="flex gap-2">
@@ -46,7 +46,7 @@ export function Join({ compact = false }: { compact?: boolean }) {
           onKeyDown={(event) => {
             if (event.key === "Enter") go();
           }}
-          placeholder="コード（例 K3M9-P2XQ）"
+          placeholder={t("placeholder")}
           autoCapitalize="characters"
           autoCorrect="off"
           spellCheck={false}
@@ -56,7 +56,7 @@ export function Join({ compact = false }: { compact?: boolean }) {
           onClick={go}
           className="shrink-0 rounded-[10px] bg-ink px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-iris"
         >
-          見る
+          {t("submit")}
         </button>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}

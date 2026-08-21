@@ -106,7 +106,10 @@ const browser = await chromium.launch({ channel: "chrome" });
  * the provisioning RPC. Everything else — capture, gestures, the buffer, the
  * request the Gateway would receive — is the real code.
  */
-const context = await browser.newContext();
+// The app answers in the language the browser asks for, so this check has to
+// ask for one: without it the assertions below (written against the Japanese
+// wording) would be compared against an English page on an English machine.
+const context = await browser.newContext({ locale: "ja-JP" });
 
 // supabase-js reads its session from this localStorage key, so putting one
 // there is enough to be signed in. The token is obvious nonsense and the

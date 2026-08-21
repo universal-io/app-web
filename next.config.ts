@@ -1,4 +1,10 @@
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
+
+// Same plugin, same purpose, as the product site: it points next-intl at the
+// request configuration. Ours negotiates the locale from the request instead of
+// reading it out of the URL (lib/i18n/routing.ts explains why).
+const withNextIntl = createNextIntlPlugin("./lib/i18n/request.ts");
 
 /**
  * The marketing site lives in another repository (../web-product) and another
@@ -29,4 +35,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);

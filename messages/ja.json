@@ -1,0 +1,136 @@
+{
+  "nav": {
+    "product": "プロダクト",
+    "pricing": "料金",
+    "cta": "macOS版をダウンロード",
+    "openMenu": "メニューを開く",
+    "closeMenu": "メニューを閉じる",
+    "language": "言語"
+  },
+  "footer": {
+    "domain": "universal-io.com",
+    "platforms": "macOS · iOS",
+    "copyright": "© 2026 Universal I/O",
+    "company": "会社概要",
+    "privacy": "プライバシーポリシー",
+    "terms": "利用規約",
+    "commerceDisclosure": "特定商取引法に基づく表記"
+  },
+  "app": {
+    "name": "Universal I/O",
+    "tagline": "画面を見せて、分からないところを聞けるコパイロットです。",
+    "loading": "読み込み中…",
+    "chooseTitle": "説明してほしい画面を選ぶ",
+    "chooseLead": "選んだ画面がこのページに映ります。分からない場所を指して質問できます。",
+    "choose": "画面を選ぶ",
+    "goingToGoogle": "Googleに移動しています…",
+    "signInFirst": "質問にはGoogleサインインが必要です（Mac版と同じアカウント）。ボタンを押すとサインインしてから戻ってきます。",
+    "pickerTab": "<strong>「Chrome のタブ」から選ぶのが一番うまく動きます。</strong>そのタブに移動せずに、このページに映したまま見て質問できます。",
+    "pickerOther": "ウィンドウや画面全体でも使えますが、そちらは一度その画面に行って戻ってくる必要があります。",
+    "pickerPrivacy": "選んだ画面のうち、あなたが質問した1枚だけが送信されます。それ以外はこのタブの中だけに置かれ、共有をやめると消えます。",
+    "companionTitle": "スマホやタブレットで見る",
+    "companionLead": "この画面を手元の端末に映して、そちらから質問します。パソコンはそのまま使い続けられます。「画面全体」を選ぶと、していることがそのまま映ります。",
+    "companionShowQr": "QRコードを表示",
+    "noCaptureNote": "この端末では画面を共有できません（スマホ・タブレットのブラウザは画面共有に対応していないためです）。パソコンでこのページを開いて「スマホやタブレットで見る」を押すと、QRコードとコードが表示されます。",
+    "goBackTitle": "分からない画面に戻ってください",
+    "goBackLead": "このタブに戻ってくると、あなたが見ていた画面がここに映ります。",
+    "loadingShared": "共有した画面を読み込んでいます…",
+    "candidates": "別の画面について聞くときは選んでください（新しい順・←→キーでも移動できます）",
+    "hintPoint": "分からないところをクリック、または囲んでください。そのまま質問を書いても聞けます。",
+    "dragToMove": "ドラッグで移動できます",
+    "retake": "いまの画面を取り直す",
+    "watchOnPhone": "スマホ・タブレットで見る",
+    "stopSharing": "共有をやめる",
+    "sharedScreenAlt": "共有された画面"
+  },
+  "ask": {
+    "placeholder": "質問（指すだけでも聞けます）",
+    "send": "聞く",
+    "sending": "…",
+    "usedSkill": "使った知識: {name}",
+    "seconds": "{value}秒",
+    "pointedHere": "（画面のこの場所を指した）"
+  },
+  "join": {
+    "title": "共有された画面を見る",
+    "lead": "パソコン側に表示されているコードを入力してください。",
+    "placeholder": "コード（例 K3M9-P2XQ）",
+    "submit": "見る",
+    "invalid": "8文字のコードを入力してください。"
+  },
+  "auth": {
+    "signInWithGoogle": "Googleでサインイン",
+    "goingToGoogle": "Googleに移動しています…",
+    "sameAccount": "Mac版アプリと同じアカウントです。どちらでサインインしても、同じ利用枠と履歴になります。画面の画像と回答は保存されません。",
+    "signedIn": "サインイン済み",
+    "signOut": "ログアウト",
+    "sameAsMac": "Mac版と同じアカウントです",
+    "checking": "ログインを確認しています…",
+    "confirming": "確認しています…",
+    "startOver": "最初からやり直す",
+    "failedStart": "ログインを開始できませんでした。",
+    "failedCheck": "ログイン状態を確認できませんでした。",
+    "failedProvision": "アカウントを準備できませんでした。",
+    "failedFinish": "ログインを完了できませんでした。",
+    "expired": "ログインが切れています。もう一度サインインしてください。"
+  },
+  "companion": {
+    "modalTitle": "スマホ・タブレットで見る",
+    "close": "閉じる",
+    "qrAlt": "接続用QRコード",
+    "makingQr": "QRコードを作成しています…",
+    "scanOrType": "カメラで読み取るか、手元の端末でこのページを開いてコードを入力してください",
+    "autoClose": "つながったらこの窓は自動で閉じます。共有はこのタブが開いている間つづき、パソコンはそのまま使えます。",
+    "stopConnection": "接続をやめる",
+    "waiting": "手元の端末の接続を待っています",
+    "connecting": "接続中…",
+    "connected": "接続しました。手元の端末から質問できます",
+    "disconnected": "接続が切れました",
+    "failed": "接続できませんでした",
+    "closed": "終了しました",
+    "roomFailed": "部屋を作成できませんでした。",
+    "live": "接続中",
+    "waitingShort": "接続を待っています…",
+    "askAboutThis": "この画面について聞く",
+    "backToLive": "ライブに戻る",
+    "pinchHint": "ピンチで拡大・指でなぞって囲めます",
+    "shareEnded": "共有が終了しました。",
+    "cannotConnect": "接続できませんでした。",
+    "noFrameYet": "映像がまだ届いていません。接続を確認してください。",
+    "noSession": "セッションがありません。ページを再読み込みしてください。"
+  },
+  "error": {
+    "generic": "エラーが発生しました。"
+  },
+  "capture": {
+    "insecure-context": "画面共有には HTTPS が必要です（localhost は例外）。",
+    "unsupported": "このブラウザでは画面共有を利用できません。パソコンの Chrome・Edge・Firefox・Safari をお使いください（iPhone・Android のブラウザは画面共有に対応していません）。",
+    "denied": "画面の共有が許可されませんでした。",
+    "no-video-track": "共有された映像を取得できませんでした。",
+    "capture-failed": "画面を取得できませんでした。共有を停止していないかご確認ください。"
+  },
+  "gatewayError": {
+    "TIMEOUT": "応答が時間内に返りませんでした。もう一度お試しください。",
+    "ABORTED": "中断しました。",
+    "NETWORK_ERROR": "サーバーに接続できませんでした。通信状況を確認してください。",
+    "INVALID_RESULT": "サーバーの応答を読み取れませんでした。",
+    "UNAUTHENTICATED": "ログインが必要です。もう一度サインインしてください。",
+    "REAUTH_REQUIRED": "ログインが必要です。もう一度サインインしてください。",
+    "QUOTA_EXCEEDED": "今月の利用上限に達しました。",
+    "PAYMENT_REQUIRED": "現在のプランではこの操作を利用できません。",
+    "RATE_LIMITED": "混み合っています。少し待ってからお試しください。",
+    "PROVIDER_ERROR": "AIモデルが応答しませんでした。少し待ってから再試行してください。"
+  },
+  "sessionError": {
+    "expired": "ログインの有効期限が切れました。もう一度サインインしてください。",
+    "sign-in-failed": "Googleのログインを開始できませんでした。",
+    "provision-failed": "アカウントを準備できませんでした。"
+  },
+  "roomError": {
+    "signaling-unreachable": "シグナリングに接続できませんでした。"
+  },
+  "peerError": {
+    "no-direct-path": "端末どうしを直接つなげませんでした。同じWi-Fiに接続しているか確認してください（別のネットワークをまたぐ接続には中継サーバーが必要で、まだ用意していません）。",
+    "connect-timeout": "接続に時間がかかりすぎました。両方の端末が同じWi-Fiにあるか確認してください。"
+  }
+}

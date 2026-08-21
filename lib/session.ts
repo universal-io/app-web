@@ -85,7 +85,7 @@ export async function signInWithGoogle(next: string): Promise<void> {
       queryParams: { prompt: "select_account" },
     },
   });
-  if (error) throw new SessionError(`Googleのログインを開始できませんでした。（${error.message}）`);
+  if (error) throw new SessionError("sign-in-failed", `could not start the Google sign-in: ${error.message}`);
 }
 
 export async function signOut(): Promise<void> {
@@ -104,7 +104,7 @@ export async function signOut(): Promise<void> {
  */
 export async function accessToken(): Promise<string> {
   const session = await currentSession();
-  if (!session) throw new SessionError("ログインの有効期限が切れました。もう一度サインインしてください。");
+  if (!session) throw new SessionError("expired", "no session when a token was required");
   return session.access_token;
 }
 
@@ -123,13 +123,19 @@ const provisioned = new Set<string>();
 export async function ensureProvisioned(session: Session): Promise<void> {
   if (provisioned.has(session.user.id)) return;
   const { error } = await supabaseBrowserClient().rpc("bs_initialize_current_user");
-  if (error) throw new SessionError(`アカウントを準備できませんでした。（${error.message}）`);
+  if (error) throw new SessionError("provision-failed", `could not provision the account: ${error.message}`);
   provisioned.add(session.user.id);
 }
 
 export class SessionError extends Error {
-  constructor(message: string) {
+  /** Which failure this is, for the UI to translate (app/errors.ts). The
+   * message stays developer-facing, for logs and stack traces. */
+  readonly code: SessionErrorCode;
+  constructor(code: SessionErrorCode, message: string) {
     super(message);
     this.name = "SessionError";
+    this.code = code;
   }
 }
+
+export type SessionErrorCode = "expired" | "sign-in-failed" | "provision-failed";

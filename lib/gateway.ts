@@ -72,6 +72,16 @@ export type AskInput = {
   question?: string;
   pointer?: Pointer;
   turns: Array<{ role: "user" | "assistant"; text: string }>;
+  /**
+   * Which language the answer should come back in.
+   *
+   * Passed in rather than fixed here. This was hard-coded to Japanese, which
+   * was invisible while the interface only existed in Japanese and becomes a
+   * plain fault the moment it does not: an English page that answers in
+   * Japanese is worse than an untranslated one, because the part the user came
+   * for is the part in the wrong language.
+   */
+  outputLanguage: "japanese" | "english";
   signal?: AbortSignal;
 };
 
@@ -126,7 +136,7 @@ export async function askVision(input: AskInput): Promise<VisionSuccess> {
           // so coordinates are the only way to point at anything.
           wants_annotations: true,
         },
-        preferences: { output_language: "japanese" },
+        preferences: { output_language: input.outputLanguage },
         client: { platform: "web", app_version: "0.1.0" },
       }),
     });
@@ -134,18 +144,12 @@ export async function askVision(input: AskInput): Promise<VisionSuccess> {
     // Distinguishing these matters: one is "wait and retry", the other is
     // "check your connection", and a single generic message serves neither.
     if (error instanceof DOMException && error.name === "TimeoutError") {
-      throw new GatewayError(
-        "TIMEOUT",
-        "応答が時間内に返りませんでした。もう一度お試しください。",
-      );
+      throw new GatewayError("TIMEOUT", "the gateway did not answer in time");
     }
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new GatewayError("ABORTED", "中断しました。");
+      throw new GatewayError("ABORTED", "the request was aborted");
     }
-    throw new GatewayError(
-      "NETWORK_ERROR",
-      "サーバーに接続できませんでした。通信状況を確認してください。",
-    );
+    throw new GatewayError("NETWORK_ERROR", "could not reach the gateway");
   }
 
   if (!response.ok) {
@@ -157,38 +161,41 @@ export async function askVision(input: AskInput): Promise<VisionSuccess> {
     if (!body?.error) {
       throw new GatewayError(
         code,
-        `Gateway から予期しない応答 (HTTP ${response.status})。送信先: ${BASE_URL}/ai/vision`,
+        `unexpected response from the gateway (HTTP ${response.status}); sent to ${BASE_URL}/ai/vision`,
       );
     }
-    throw new GatewayError(code, messageForCode(code, body.error.message));
+    // The Gateway's own text is kept as the message: for a code this client
+    // does not know a phrase for, what the server said is the only thing that
+    // describes what happened. The UI prefers a translated phrase when it has
+    // one (app/errors.ts).
+    throw new GatewayError(code, body.error.message ?? code);
   }
 
   const body = (await response.json().catch(() => null)) as VisionSuccess | null;
   if (!body?.result) {
-    throw new GatewayError(
-      "INVALID_RESULT",
-      "サーバーの応答を読み取れませんでした。",
-    );
+    throw new GatewayError("INVALID_RESULT", "could not read the gateway response");
   }
   // A Gateway that omitted the field is not a reason for the renderer to crash.
   return { ...body, result: { ...body.result, annotations: body.result.annotations ?? [] } };
 }
 
-/** Japanese for the codes a user can act on; the Gateway's own text otherwise. */
-function messageForCode(code: string, fallback?: string): string {
-  switch (code) {
-    case "UNAUTHENTICATED":
-    case "REAUTH_REQUIRED":
-      return "ログインが必要です。もう一度サインインしてください。";
-    case "QUOTA_EXCEEDED":
-      return "今月の利用上限に達しました。";
-    case "PAYMENT_REQUIRED":
-      return "現在のプランではこの操作を利用できません。";
-    case "RATE_LIMITED":
-      return "混み合っています。少し待ってからお試しください。";
-    case "PROVIDER_ERROR":
-      return "AIモデルが応答しませんでした。少し待ってから再試行してください。";
-    default:
-      return fallback ?? "エラーが発生しました。";
-  }
-}
+/**
+ * The codes this client has its own wording for, in every language it speaks.
+ *
+ * Everything else falls through to whatever the Gateway said, which is the
+ * honest answer for a code we have never seen: a phrase invented here would
+ * describe a guess. Kept next to the request so that adding a code the Gateway
+ * starts returning means touching one list (app/errors.ts renders them).
+ */
+export const TRANSLATED_GATEWAY_CODES = [
+  "TIMEOUT",
+  "ABORTED",
+  "NETWORK_ERROR",
+  "INVALID_RESULT",
+  "UNAUTHENTICATED",
+  "REAUTH_REQUIRED",
+  "QUOTA_EXCEEDED",
+  "PAYMENT_REQUIRED",
+  "RATE_LIMITED",
+  "PROVIDER_ERROR",
+] as const;

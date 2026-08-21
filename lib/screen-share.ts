@@ -58,18 +58,25 @@ export function screenShareUnavailableReason(): CaptureError | null {
   return null;
 }
 
+/**
+ * Developer-facing text for a capture failure.
+ *
+ * What the user reads comes from the message catalogue, keyed by the same
+ * `CaptureError` (app/errors.ts). This stays so that a thrown ScreenShareError
+ * still says something in a log or a stack trace, where no translator exists.
+ */
 export function messageForCaptureError(kind: CaptureError): string {
   switch (kind) {
     case "insecure-context":
-      return "画面共有には HTTPS が必要です（localhost は例外）。";
+      return "screen capture requires a secure context";
     case "unsupported":
-      return "このブラウザでは画面共有を利用できません。パソコンの Chrome・Edge・Firefox・Safari をお使いください（iPhone・Android のブラウザは画面共有に対応していません）。";
+      return "this browser cannot capture a screen";
     case "denied":
-      return "画面の共有が許可されませんでした。";
+      return "the user did not grant the screen share";
     case "no-video-track":
-      return "共有された映像を取得できませんでした。";
+      return "the share carried no video track";
     case "capture-failed":
-      return "画面を取得できませんでした。共有を停止していないかご確認ください。";
+      return "could not grab a frame";
   }
 }
 

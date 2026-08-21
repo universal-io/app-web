@@ -64,10 +64,9 @@ function attach(
     // "disconnected" is routine — a lost packet, a network switching over —
     // and recovers on its own. Only "failed" means the path is gone.
     if (peer.connectionState === "failed") {
-      events.onFailed?.(
-        "端末どうしを直接つなげませんでした。同じWi-Fiに接続しているか確認してください"
-        + "（別のネットワークをまたぐ接続には中継サーバーが必要で、まだ用意していません）。",
-      );
+      // A code, not a sentence: what the user reads is written in the message
+      // catalogue so it exists in every language (app/errors.ts).
+      events.onFailed?.("no-direct-path");
     }
   };
 
@@ -76,9 +75,7 @@ function attach(
       if (watchdog) return;
       watchdog = setTimeout(() => {
         if (peer.connectionState !== "connected") {
-          events.onFailed?.(
-            "接続に時間がかかりすぎました。両方の端末が同じWi-Fiにあるか確認してください。",
-          );
+          events.onFailed?.("connect-timeout");
         }
       }, CONNECT_TIMEOUT_MS);
     },

@@ -1,14 +1,17 @@
 "use client";
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import type { Session } from "@supabase/supabase-js";
-import { askVision, GatewayError, type Pointer, type VisionSuccess } from "@/lib/gateway";
+import { askVision, type Pointer, type VisionSuccess } from "@/lib/gateway";
 import { captureFrame, type Capture } from "@/lib/screen-share";
 import { withPointerMark } from "@/lib/marker";
 import { createViewerPeer } from "@/lib/peer";
 import { joinRoom, type RoomConnection } from "@/lib/room";
 import { accessToken } from "@/lib/session";
 import { RequireAccount } from "@/app/auth";
+import { useErrorText, usePeerErrorText } from "@/app/errors";
+import { outputLanguageFor } from "@/lib/i18n/routing";
 import { Notice } from "@/app/ui";
 import { Snapshot, type Point } from "@/app/snapshot";
 import { AnswerPanel, QuestionInput } from "@/app/ask";
@@ -39,6 +42,12 @@ export default function CompanionPage({ params }: { params: Promise<{ roomId: st
 }
 
 function Companion({ roomId, session }: { roomId: string; session: Session }) {
+  const locale = useLocale();
+  const errorText = useErrorText();
+  const peerErrorText = usePeerErrorText();
+  const t = useTranslations("companion");
+  const tAsk = useTranslations("ask");
+  const tErr = useTranslations("error");
   const [connected, setConnected] = useState(false);
   const [capture, setCapture] = useState<Capture | null>(null);
   const [pointer, setPointer] = useState<Pointer | null>(null);
@@ -59,7 +68,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
         const room = await joinRoom(roomId, (message) => {
           if (message.type === "sharer-gone") {
             setConnected(false);
-            setError("共有が終了しました。");
+            setError(t("shareEnded"));
             return;
           }
           void peerRef.current?.handleSignal(message);
@@ -74,13 +83,13 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
             if (videoRef.current) videoRef.current.srcObject = stream;
           },
           onStateChange: (state) => setConnected(state === "connected"),
-          onFailed: setError,
+          onFailed: (code) => setError(peerErrorText(code)),
           // A connection that came good must take its own warning down.
           onRecovered: () => setError(null),
         });
         room.send({ type: "viewer-ready" });
       } catch (caught) {
-        if (!closed) setError(caught instanceof Error ? caught.message : "接続できませんでした。");
+        if (!closed) setError(errorText(caught, t("cannotConnect")));
       }
     })();
     return () => {
@@ -88,7 +97,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
       peerRef.current?.close();
       void roomRef.current?.leave();
     };
-  }, [roomId]);
+  }, [roomId, t, errorText, peerErrorText]);
 
   const freeze = useCallback(async () => {
     if (!videoRef.current) return;
@@ -100,9 +109,9 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
     try {
       setCapture(await captureFrame(videoRef.current));
     } catch {
-      setError("映像がまだ届いていません。接続を確認してください。");
+      setError(t("noFrameYet"));
     }
-  }, []);
+  }, [t]);
 
   const dismiss = useCallback(() => {
     setCapture(null);
@@ -130,7 +139,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
   const ask = useCallback(async () => {
     if (!capture) return;
     if (!session) {
-      setError("セッションがありません。ページを再読み込みしてください。");
+      setError(t("noSession"));
       return;
     }
     const asked = question.trim();
@@ -147,6 +156,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
         question: asked || undefined,
         pointer: pointer ?? undefined,
         turns,
+        outputLanguage: outputLanguageFor(locale),
       });
       setAnswer(response);
       // The user's side of the exchange is always recorded, even when they only
@@ -154,16 +164,16 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
       // reads as the model talking to itself, and it answers accordingly.
       setTurns((previous) => [
         ...previous,
-        { role: "user" as const, text: asked || "（画面のこの場所を指した）" },
+        { role: "user" as const, text: asked || tAsk("pointedHere") },
         { role: "assistant" as const, text: response.result.message },
       ]);
       setQuestion("");
     } catch (caught) {
-      setError(caught instanceof GatewayError ? caught.message : "エラーが発生しました。");
+      setError(errorText(caught, tErr("generic")));
     } finally {
       setBusy(false);
     }
-  }, [capture, session, question, pointer, stroke, turns]);
+  }, [capture, session, question, pointer, stroke, turns, t, tAsk, tErr, locale, errorText]);
 
   return (
     <div className="fixed inset-0 bg-black">
@@ -175,7 +185,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-[max(1rem,env(safe-area-inset-top))_1rem_max(1rem,env(safe-area-inset-bottom))]">
           <div className="flex justify-end">
             <span className={`pointer-events-auto rounded-full px-3 py-1 text-xs backdrop-blur ${connected ? "bg-green-500/20 text-green-200" : "bg-white/10 text-white/70"}`}>
-              {connected ? "接続中" : "接続を待っています…"}
+              {connected ? t("live") : t("waitingShort")}
             </span>
           </div>
           <div className="pointer-events-auto space-y-2">
@@ -185,7 +195,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
               disabled={!connected}
               className="w-full rounded-xl bg-iris px-4 py-4 text-base font-semibold text-white shadow-lg transition-colors active:bg-iris-deep disabled:opacity-40"
             >
-              この画面について聞く
+              {t("askAboutThis")}
             </button>
           </div>
         </div>
@@ -198,9 +208,9 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
         // aim at.
         <div className="absolute inset-0 flex flex-col bg-black">
           <div className="flex items-center justify-between px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
-            <span className="text-xs text-white/50">ピンチで拡大・指でなぞって囲めます</span>
+            <span className="text-xs text-white/50">{t("pinchHint")}</span>
             <button onClick={dismiss} className="rounded-full bg-white/15 px-3 py-1 text-sm text-white">
-              ライブに戻る
+              {t("backToLive")}
             </button>
           </div>
 

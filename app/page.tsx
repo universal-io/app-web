@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import QRCode from "qrcode";
-import { askVision, GatewayError, type Pointer, type VisionSuccess } from "@/lib/gateway";
+import { askVision, type Pointer, type VisionSuccess } from "@/lib/gateway";
 import {
   createFrameSource,
-  messageForCaptureError,
   screenShareUnavailableReason,
-  ScreenShareError,
   startScreenShare,
   type Capture,
   type DisplaySurface,
@@ -23,8 +22,10 @@ import {
 import { withPointerMark } from "@/lib/marker";
 import { createSharerPeer } from "@/lib/peer";
 import { createRoomId, formatRoomId, joinRoom, type RoomConnection } from "@/lib/room";
-import { accessToken, ensureProvisioned, signInWithGoogle, SessionError } from "@/lib/session";
+import { accessToken, ensureProvisioned, signInWithGoogle } from "@/lib/session";
 import { Account, useAccount } from "@/app/auth";
+import { useErrorText, usePeerErrorText } from "@/app/errors";
+import { outputLanguageFor } from "@/lib/i18n/routing";
 import { Join } from "@/app/join";
 import { Notice, Shell, useMounted } from "@/app/ui";
 import { markFrom, Snapshot, Stroke, type Point } from "@/app/snapshot";
@@ -68,6 +69,15 @@ export default function HomePage() {
 }
 
 function Home() {
+  const locale = useLocale();
+  const errorText = useErrorText();
+  const peerErrorText = usePeerErrorText();
+  const t = useTranslations("app");
+  const tCap = useTranslations("capture");
+  const tc = useTranslations("companion");
+  const tAuth = useTranslations("auth");
+  const tAsk = useTranslations("ask");
+  const tErr = useTranslations("error");
   /**
    * Signing in is asked for at the moment it is needed, not at the door.
    *
@@ -88,12 +98,12 @@ function Home() {
     let cancelled = false;
     ensureProvisioned(session).catch((caught: unknown) => {
       if (cancelled) return;
-      setError(caught instanceof Error ? caught.message : "アカウントを準備できませんでした。");
+      setError(errorText(caught, tAuth("failedProvision")));
     });
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [session, tAuth, errorText]);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [surface, setSurface] = useState<DisplaySurface>("monitor");
@@ -259,16 +269,16 @@ function Home() {
           // looking at this screen, and the code in front of it helps nobody.
           if (state === "connected") setCompanionOpen(false);
         },
-        onFailed: setError,
+        onFailed: (code) => setError(peerErrorText(code)),
         // A connection that came good must take its own warning down.
         onRecovered: () => setError(null),
       });
       setRoomId(id);
     } catch (caught) {
       setCompanionOpen(false);
-      setError(caught instanceof Error ? caught.message : "部屋を作成できませんでした。");
+      setError(errorText(caught, tc("roomFailed")));
     }
-  }, []);
+  }, [tc, errorText, peerErrorText]);
 
   // Cleared by stopCompanion alongside the room it encodes, so there is no
   // moment where a QR points at a room that no longer exists.
@@ -311,7 +321,7 @@ function Home() {
       try {
         await signInWithGoogle("/");
       } catch (caught) {
-        setError(caught instanceof SessionError ? caught.message : "ログインを開始できませんでした。");
+        setError(errorText(caught, tAuth("failedStart")));
         setSigningIn(false);
       }
       return;
@@ -325,14 +335,14 @@ function Home() {
       // so it is a preference and not a mechanism.
       share = await startScreenShare({ prefer: intent === "companion" ? "monitor" : "browser" });
     } catch (caught) {
-      setError(caught instanceof ScreenShareError ? caught.message : messageForCaptureError("capture-failed"));
+      setError(errorText(caught, tCap("capture-failed")));
       return;
     }
     setSurface(share.surface);
     setKeptFocus(share.keptFocus);
     setStream(share.stream);
     if (intent === "companion") void openCompanion(share.stream);
-  }, [accountReady, session, openCompanion]);
+  }, [accountReady, session, openCompanion, tAuth, tCap, errorText]);
 
   // Stopping from the browser's own bar has to end things here too, or the page
   // goes on offering screens from a share that no longer exists.
@@ -368,9 +378,9 @@ function Home() {
     }
     // Running out of attempts has to say so. A blank panel that never fills is
     // the one failure nobody can act on (app-mac R11).
-    setError(messageForCaptureError("capture-failed"));
+    setError(tCap("capture-failed"));
     return null;
-  }, []);
+  }, [tCap]);
 
   useEffect(() => {
     if (!stream || !videoRef.current) return;
@@ -480,7 +490,7 @@ function Home() {
     history: Turn[];
   }) => {
     if (!session) {
-      setError("ログインが切れています。もう一度サインインしてください。");
+      setError(tAuth("expired"));
       return;
     }
     const asked = input.question.trim();
@@ -497,6 +507,7 @@ function Home() {
         question: asked || undefined,
         pointer: input.pointer ?? undefined,
         turns: input.history,
+        outputLanguage: outputLanguageFor(locale),
       });
       setAnswer({ value: response, capture: input.capture });
       // The user's side is always recorded, even when they only pointed: a
@@ -504,16 +515,16 @@ function Home() {
       // model talking to itself, and it answers accordingly.
       setTurns([
         ...input.history,
-        { role: "user" as const, text: asked || "（画面のこの場所を指した）" },
+        { role: "user" as const, text: asked || tAsk("pointedHere") },
         { role: "assistant" as const, text: response.result.message },
       ]);
       setQuestion("");
     } catch (caught) {
-      setError(caught instanceof GatewayError ? caught.message : "エラーが発生しました。");
+      setError(errorText(caught, tErr("generic")));
     } finally {
       setBusy(false);
     }
-  }, [session]);
+  }, [session, tAuth, tAsk, tErr, locale, errorText]);
 
   /**
    * Pointing somewhere new starts a new subject, so the previous exchange is
@@ -733,7 +744,7 @@ function Home() {
     [answer, currentCapture],
   );
 
-  if (!mounted) return <Shell><p className="text-slate">読み込み中…</p></Shell>;
+  if (!mounted) return <Shell><p className="text-slate">{t("loading")}</p></Shell>;
 
   if (unavailable) {
     // A phone cannot capture a screen, so it is never the sharing side.
@@ -743,15 +754,12 @@ function Home() {
     return (
       <Shell>
         <header className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-[-0.02em]">Universal I/O</h1>
-          <p className="text-sm text-slate">
-            画面を見せて、分からないところを聞けるコパイロットです。
-          </p>
+          <h1 className="text-xl font-semibold tracking-[-0.02em]">{t("name")}</h1>
+          <p className="text-sm text-slate">{t("tagline")}</p>
         </header>
         <Join />
         <p className="rounded-lg bg-paper px-3 py-3 text-xs leading-relaxed text-body">
-          この端末では画面を共有できません（スマホ・タブレットのブラウザは画面共有に対応していないためです）。
-          パソコンでこのページを開いて「スマホやタブレットで見る」を押すと、QRコードとコードが表示されます。
+          {t("noCaptureNote")}
         </p>
         <Account />
       </Shell>
@@ -762,10 +770,8 @@ function Home() {
     return (
       <Shell>
         <header className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-[-0.02em]">説明してほしい画面を選ぶ</h1>
-          <p className="text-sm text-slate">
-            選んだ画面がこのページに映ります。分からない場所を指して質問できます。
-          </p>
+          <h1 className="text-xl font-semibold tracking-[-0.02em]">{t("chooseTitle")}</h1>
+          <p className="text-sm text-slate">{t("chooseLead")}</p>
         </header>
         {accountError && <Notice tone="error">{accountError}</Notice>}
         {error && <Notice tone="error">{error}</Notice>}
@@ -774,15 +780,12 @@ function Home() {
           disabled={!accountReady || signingIn}
           className="self-start rounded-[10px] bg-ink px-[18px] py-3 text-base font-semibold text-white transition-colors hover:bg-iris disabled:opacity-50"
         >
-          {signingIn ? "Googleに移動しています…" : "画面を選ぶ"}
+          {signingIn ? t("goingToGoogle") : t("choose")}
         </button>
         {/* Being sent to Google by a button that says nothing about it feels
             like a malfunction; one sentence ahead of time makes it the plan. */}
         {accountReady && !session && (
-          <p className="text-sm text-slate">
-            質問にはGoogleサインインが必要です（Mac版と同じアカウント）。
-            ボタンを押すとサインインしてから戻ってきます。
-          </p>
+          <p className="text-sm text-slate">{t("signInFirst")}</p>
         )}
         {/* The picker's three panes are the browser's, not ours: they cannot be
             reordered or removed, and Chrome 151 ignores which one we ask it to
@@ -790,28 +793,22 @@ function Home() {
             in the order of how well each one works. */}
         <div className="space-y-2 rounded-lg bg-paper px-3 py-3 text-xs leading-relaxed text-body">
           <p>
-            <strong>「Chrome のタブ」から選ぶのが一番うまく動きます。</strong>
-            そのタブに移動せずに、このページに映したまま見て質問できます。
+            {t.rich("pickerTab", { strong: (chunks) => <strong>{chunks}</strong> })}
           </p>
-          <p>
-            ウィンドウや画面全体でも使えますが、そちらは一度その画面に行って戻ってくる必要があります。
-          </p>
-          <p>選んだ画面のうち、あなたが質問した1枚だけが送信されます。それ以外はこのタブの中だけに置かれ、共有をやめると消えます。</p>
+          <p>{t("pickerOther")}</p>
+          <p>{t("pickerPrivacy")}</p>
         </div>
         <div className="space-y-2 border-t border-line pt-6">
           <div className="space-y-1">
-            <h2 className="text-base font-medium">スマホやタブレットで見る</h2>
-            <p className="text-sm text-slate">
-              この画面を手元の端末に映して、そちらから質問します。パソコンはそのまま使い続けられます。
-              「画面全体」を選ぶと、していることがそのまま映ります。
-            </p>
+            <h2 className="text-base font-medium">{t("companionTitle")}</h2>
+            <p className="text-sm text-slate">{t("companionLead")}</p>
           </div>
           <button
             onClick={() => void start("companion")}
             disabled={!accountReady || signingIn}
             className="rounded-[10px] border border-line px-4 py-2 text-sm font-medium text-body transition-colors hover:bg-paper disabled:opacity-50"
           >
-            QRコードを表示
+            {t("companionShowQr")}
           </button>
         </div>
         <Account />
@@ -827,10 +824,10 @@ function Home() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-sm space-y-4 rounded-2xl border border-white/10 bg-carbon p-5 text-white shadow-2xl">
             <div className="flex items-start justify-between gap-3">
-              <h2 className="text-base font-medium">スマホ・タブレットで見る</h2>
+              <h2 className="text-base font-medium">{tc("modalTitle")}</h2>
               <button
                 onClick={() => setCompanionOpen(false)}
-                aria-label="閉じる"
+                aria-label={tc("close")}
                 className="rounded-full bg-white/10 px-2 py-0.5 text-sm text-white/70"
               >
                 ✕
@@ -838,30 +835,25 @@ function Home() {
             </div>
             {qr ? (
               /* eslint-disable-next-line @next/next/no-img-element */
-              <img src={qr} alt="接続用QRコード" className="mx-auto rounded-lg" />
+              <img src={qr} alt={tc("qrAlt")} className="mx-auto rounded-lg" />
             ) : (
-              <p className="text-center text-sm text-white/60">QRコードを作成しています…</p>
+              <p className="text-center text-sm text-white/60">{tc("makingQr")}</p>
             )}
             {roomId && (
               <div className="space-y-1">
-                <p className="text-xs text-white/50">
-                  カメラで読み取るか、手元の端末でこのページを開いてコードを入力してください
-                </p>
+                <p className="text-xs text-white/50">{tc("scanOrType")}</p>
                 <code className="block rounded bg-white/10 px-3 py-2 text-center font-mono text-xl tracking-widest">
                   {formatRoomId(roomId)}
                 </code>
               </div>
             )}
             <CompanionState state={peerState} />
-            <p className="text-xs leading-relaxed text-white/50">
-              つながったらこの窓は自動で閉じます。共有はこのタブが開いている間つづき、
-              パソコンはそのまま使えます。
-            </p>
+            <p className="text-xs leading-relaxed text-white/50">{tc("autoClose")}</p>
             <button
               onClick={stopCompanion}
               className="rounded-lg border border-white/20 px-3 py-2 text-sm text-white/80"
             >
-              接続をやめる
+              {tc("stopConnection")}
             </button>
           </div>
         </div>
@@ -881,8 +873,8 @@ function Home() {
         <div className="absolute right-2 top-2 z-20 flex gap-1">
           <button
             onClick={refresh}
-            title="いまの画面を取り直す"
-            aria-label="いまの画面を取り直す"
+            title={t("retake")}
+            aria-label={t("retake")}
             className="rounded-full bg-black/40 p-2 text-white backdrop-blur transition hover:bg-black/60"
           >
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -895,8 +887,8 @@ function Home() {
               if (companionOpen) setCompanionOpen(false);
               else if (stream) void openCompanion(stream);
             }}
-            title="スマホ・タブレットで見る"
-            aria-label="スマホ・タブレットで見る"
+            title={t("watchOnPhone")}
+            aria-label={t("watchOnPhone")}
             className="rounded-full bg-black/40 p-2 text-white backdrop-blur transition hover:bg-black/60"
           >
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -909,8 +901,8 @@ function Home() {
           </button>
           <button
             onClick={stop}
-            title="共有をやめる"
-            aria-label="共有をやめる"
+            title={t("stopSharing")}
+            aria-label={t("stopSharing")}
             className="rounded-full bg-black/40 p-2 text-white backdrop-blur transition hover:bg-black/60"
           >
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -1007,22 +999,20 @@ function Home() {
             <>
               {/* The only thing this mode ever teaches, and it is shown once:
                   after the first return there is always a screen here. */}
-              <p className="text-lg font-medium">分からない画面に戻ってください</p>
+              <p className="text-lg font-medium">{t("goBackTitle")}</p>
               <p className="mx-auto max-w-md text-sm leading-relaxed text-white/60">
-                このタブに戻ってくると、あなたが見ていた画面がここに映ります。
+                {t("goBackLead")}
               </p>
             </>
           ) : (
-            <p className="text-sm text-white/60">共有した画面を読み込んでいます…</p>
+            <p className="text-sm text-white/60">{t("loadingShared")}</p>
           )}
         </div>
       )}
 
       {buffered && screens.length > 1 && (
         <div className="fixed bottom-4 left-4 z-30 max-w-[min(28rem,calc(100vw-28rem))] space-y-1 rounded-xl bg-carbon/80 p-2 text-white backdrop-blur">
-          <p className="text-[11px] text-white/40">
-            別の画面について聞くときは選んでください（新しい順・←→キーでも移動できます）
-          </p>
+          <p className="text-[11px] text-white/40">{t("candidates")}</p>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {screens.map((screen, at) => (
               <button
@@ -1063,16 +1053,14 @@ function Home() {
             <circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" />
             <circle cx="9" cy="17" r="1.4" /><circle cx="15" cy="17" r="1.4" />
           </svg>
-          <span className="text-xs text-white/40">ドラッグで移動できます</span>
+          <span className="text-xs text-white/40">{t("dragToMove")}</span>
         </div>
 
         <div className="space-y-2 px-3 pb-3">
           {error && <Notice tone="error">{error}</Notice>}
           {answer && <AnswerPanel answer={answer.value} />}
           {!answer && (
-            <p className="text-xs text-white/50">
-              分からないところをクリック、または囲んでください。そのまま質問を書いても聞けます。
-            </p>
+            <p className="text-xs text-white/50">{t("hintPoint")}</p>
           )}
           <QuestionInput
             value={question}
@@ -1087,16 +1075,17 @@ function Home() {
 }
 
 function CompanionState({ state }: { state: RTCPeerConnectionState }) {
-  const label: Record<RTCPeerConnectionState, string> = {
-    new: "手元の端末の接続を待っています",
-    connecting: "接続中…",
-    connected: "接続しました。手元の端末から質問できます",
-    disconnected: "接続が切れました",
-    failed: "接続できませんでした",
-    closed: "終了しました",
+  const t = useTranslations("companion");
+  const key: Record<RTCPeerConnectionState, string> = {
+    new: "waiting",
+    connecting: "connecting",
+    connected: "connected",
+    disconnected: "disconnected",
+    failed: "failed",
+    closed: "closed",
   };
   const tone = state === "connected" ? "text-green-400" : "text-white/60";
-  return <p className={`text-sm ${tone}`}>{label[state]}</p>;
+  return <p className={`text-sm ${tone}`}>{t(key[state])}</p>;
 }
 
 /**
@@ -1106,6 +1095,10 @@ function CompanionState({ state }: { state: RTCPeerConnectionState }) {
  * either of these is worth less than one look at the numbers
  * (docs/solo-mode.md §7).
  */
+/* Left untranslated on purpose: the strings below are read by
+   scripts/check-solo-buffer.mjs and by whoever is debugging, never by a user
+   who did not type `?debug`. Putting diagnostics in the message catalogue
+   would mean translating them for an audience of one. */
 function DebugPanel({
   screens,
   report,
