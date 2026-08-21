@@ -21,8 +21,10 @@ import { useTranslations } from "next-intl";
  * than passing the script off as an answer.
  *
  * The interaction is also a preview of where the real UI is headed: explain
- * what the pointer rests on, not only what gets clicked. When the product
- * catches up, this page stops being a metaphor.
+ * what the pointer rests on, not only what gets clicked, and answer beside the
+ * thing rather than in a panel somewhere else. When the product catches up,
+ * this page stops being a metaphor — the requirements for that are in
+ * docs/pointing.md.
  *
  * Only pointers that can hover get any of this. On touch there is no
  * rollover to speak, and the wash would just sit dark over the page.
@@ -49,8 +51,8 @@ const SPOT_MASK =
   " transparent 0%, transparent 55%, #000 85%, #000 100%)";
 
 /** How the exchange advances: the explanation types, the question pops in
- * whole (people don't watch themselves type), the answer types, then it all
- * holds long enough to read before looping. */
+ * whole (people don't watch themselves type), the answer types, and then it
+ * stays. `hold` is the end of the story, not a pause in it. */
 type Beat = "explain" | "question" | "answer" | "hold";
 
 export function ExplainDemo() {
@@ -189,38 +191,45 @@ function Exchange({ id, reduce }: { id: string; reduce: boolean }) {
   const [typedE, setTypedE] = useState(reduce ? explain.length : 0);
   const [typedA, setTypedA] = useState(reduce ? answer.length : 0);
 
+  /**
+   * Played once, then left alone.
+   *
+   * Not a loop. A cursor resting on something is not asking to be told the
+   * same thing again, and a panel that restarts under a still pointer reads as
+   * a stuck animation rather than as an answer. So the exchange runs to its
+   * end and stops there, complete and readable for as long as the pointer
+   * stays.
+   *
+   * Replaying is the caller's business, not this effect's: the bubble is keyed
+   * by target, so pointing at something else — or leaving and coming back —
+   * mounts a fresh copy and starts it over. One hover, one telling.
+   */
   useEffect(() => {
     if (reduce) return;
     let cancelled = false;
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
     (async () => {
-      while (!cancelled) {
-        setBeat("explain");
-        setTypedE(0);
-        setTypedA(0);
-        for (let i = 1; i <= explain.length; i++) {
-          if (cancelled) return;
-          setTypedE(i);
-          await sleep(18);
-        }
-        await sleep(650);
+      for (let i = 1; i <= explain.length; i++) {
         if (cancelled) return;
-
-        setBeat("question");
-        await sleep(700);
-        if (cancelled) return;
-
-        setBeat("answer");
-        for (let i = 1; i <= answer.length; i++) {
-          if (cancelled) return;
-          setTypedA(i);
-          await sleep(16);
-        }
-        if (cancelled) return;
-
-        setBeat("hold");
-        await sleep(3400);
+        setTypedE(i);
+        await sleep(18);
       }
+      await sleep(650);
+      if (cancelled) return;
+
+      setBeat("question");
+      await sleep(700);
+      if (cancelled) return;
+
+      setBeat("answer");
+      for (let i = 1; i <= answer.length; i++) {
+        if (cancelled) return;
+        setTypedA(i);
+        await sleep(16);
+      }
+      if (cancelled) return;
+
+      setBeat("hold");
     })();
     return () => {
       cancelled = true;

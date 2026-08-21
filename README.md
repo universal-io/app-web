@@ -51,6 +51,7 @@
 | **このREADME** | 何を作るか・どう動かすか・いま何が動いているか |
 | [docs/capabilities.md](docs/capabilities.md) | **やりたいこと・できること・できないこと。技術的な可否の正本。**新しい案を思いついたらまずここ |
 | [docs/solo-mode.md](docs/solo-mode.md) | 画面を読む本体（`/`・1台で完結）の現在の設計。**主経路** |
+| [docs/pointing.md](docs/pointing.md) | **指した場所に答えが出る形の要件定義（未実装）。**次に作るものはこれ |
 | [docs/companion-mode.md](docs/companion-mode.md) | コンパニオン（スマホ・タブレットで見る）の設計と、公開前に必ず戻ること |
 | [docs/auth.md](docs/auth.md) | 認証とアカウント。**本家と同一のSupabaseプロジェクト**である理由と、外部設定 |
 | [docs/log.md](docs/log.md) | 時系列の記録。**間違えた記録**が主な価値。普段は読まない |
@@ -201,6 +202,12 @@ UIが日本語しか無いうちは見えない誤りだった。
 - ホバーできる端末のみ（`(hover: hover) and (pointer: fine)`）。タッチでは出ない
 - `prefers-reduced-motion` では完成形（3コマ全文）を静止表示
 - 実装は [app/demo.tsx](app/demo.tsx)、解説対象の印は `data-demo` 属性
+- **1回だけ再生して、そこで止まる。** カーソルが止まっているのに繰り返すのは、
+  答えではなく動かないアニメーションに見える。指し直せばまた再生される
+
+**🔴 いまはモックの方が本物より良い。** 本物は指した場所に枠を出し、答えは隅の
+パネルに出すので目が往復する。**これを解消する要件が
+[docs/pointing.md](docs/pointing.md)** で、次に作るものはそれ。
 
 ## 動かす
 
