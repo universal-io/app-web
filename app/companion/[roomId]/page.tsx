@@ -12,8 +12,7 @@ import { accessToken } from "@/lib/session";
 import { RequireAccount } from "@/app/auth";
 import { useErrorText, usePeerErrorText } from "@/app/errors";
 import { outputLanguageFor } from "@/lib/i18n/routing";
-import { Notice } from "@/app/ui";
-import { Snapshot, type Point } from "@/app/snapshot";
+import { Snapshot, Stroke, markFrom, type Point } from "@/app/snapshot";
 import { ExchangeBubble, placeBeside, type Rect } from "@/app/bubble";
 
 type Turn = { role: "user" | "assistant"; text: string };
@@ -23,7 +22,7 @@ type TouchPoint = { x: number; y: number };
 type TouchTool = "hand" | "pen";
 
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 5;
+const MAX_ZOOM = 8;
 
 function distance(a: TouchPoint, b: TouchPoint): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -85,6 +84,8 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tool, setTool] = useState<TouchTool>("hand");
+  const [sourceAspect, setSourceAspect] = useState(16 / 9);
+  const [liveInk, setLiveInk] = useState<Point[] | null>(null);
   /** Which send the bubble is waiting on; closing it abandons older ones. */
   const sendSeq = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -106,6 +107,10 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
     view: ViewTransform;
     moved: boolean;
   } | null>(null);
+  const pinchWasActiveRef = useRef(false);
+  const liveStrokeRef = useRef<Point[] | null>(null);
+  const liveCaptureRef = useRef<Promise<Capture> | null>(null);
+  const introStartedRef = useRef(false);
   const placeBubbleRef = useRef<() => void>(() => undefined);
   const roomRef = useRef<RoomConnection | null>(null);
   const peerRef = useRef<ReturnType<typeof createViewerPeer> | null>(null);
@@ -129,7 +134,10 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
         roomRef.current = room;
         peerRef.current = createViewerPeer(room, {
           onStream: (stream) => {
-            if (videoRef.current) videoRef.current.srcObject = stream;
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+              void videoRef.current.play().catch(() => undefined);
+            }
           },
           onStateChange: (state) => setConnected(state === "connected"),
           onFailed: (code) => setError(peerErrorText(code)),
@@ -148,22 +156,6 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
     };
   }, [roomId, t, errorText, peerErrorText]);
 
-  const freeze = useCallback(async () => {
-    if (!videoRef.current) return;
-    setError(null);
-    setAnswer(null);
-    setPointer(null);
-    setStroke(null);
-    setTurns([]);
-    setAsked(null);
-    movedRef.current = false;
-    try {
-      setCapture(await captureFrame(videoRef.current));
-    } catch {
-      setError(t("noFrameYet"));
-    }
-  }, [t]);
-
   const dismiss = useCallback(() => {
     sendSeq.current += 1;
     setBusy(false);
@@ -176,6 +168,17 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
     setAsked(null);
     movedRef.current = false;
   }, []);
+
+  const stopWatching = useCallback(() => {
+    sendSeq.current += 1;
+    setBusy(false);
+    setConnected(false);
+    peerRef.current?.close();
+    peerRef.current = null;
+    void roomRef.current?.leave();
+    roomRef.current = null;
+    setError(t("shareEnded"));
+  }, [t]);
 
   /** Done with this bubble; the still stays, ready to be pointed at again. */
   const close = useCallback(() => {
@@ -197,12 +200,12 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
    * a typed question continues whatever was being discussed.
    */
   const send = useCallback(async (input: {
+    capture: Capture;
     pointer: Pointer | null;
     stroke: Point[] | null;
     question: string;
     history: Turn[];
   }) => {
-    if (!capture) return;
     if (!session) {
       setError(t("noSession"));
       return;
@@ -216,11 +219,11 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
     setAsked(askedNow || null);
     const started = performance.now();
     try {
-      const imageBase64 = await withPointerMark(capture, input.pointer, input.stroke);
+      const imageBase64 = await withPointerMark(input.capture, input.pointer, input.stroke);
       const response = await askVision({
         accessToken: await accessToken(),
         imageBase64,
-        mediaType: capture.mediaType,
+        mediaType: input.capture.mediaType,
         question: askedNow || undefined,
         pointer: input.pointer ?? undefined,
         turns: input.history,
@@ -246,7 +249,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
     } finally {
       if (sendSeq.current === seq) setBusy(false);
     }
-  }, [capture, session, locale, t, tAsk, tErr, errorText]);
+  }, [session, locale, t, tAsk, tErr, errorText]);
 
   /**
    * Pointing somewhere new starts a new subject, so the previous exchange is
@@ -263,12 +266,68 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
     setAnswer(null);
     setTurns([]);
     setAsked(null);
-    if (next) void send({ pointer: next, stroke: drawn, question: "", history: [] });
-  }, [send]);
+    if (next && capture) {
+      void send({ capture, pointer: next, stroke: drawn, question: "", history: [] });
+    }
+  }, [capture, send]);
 
   const ask = useCallback(() => {
-    void send({ pointer, stroke, question, history: turns });
-  }, [send, pointer, stroke, question, turns]);
+    void (async () => {
+      let subject = capture;
+      if (!subject) {
+        const video = videoRef.current;
+        if (!video) return;
+        try {
+          subject = await captureFrame(video);
+          setCapture(subject);
+        } catch {
+          setError(t("noFrameYet"));
+          return;
+        }
+      }
+      await send({ capture: subject, pointer, stroke, question, history: turns });
+    })();
+  }, [capture, send, pointer, stroke, question, turns, t]);
+
+  /** The first decoded frame is described without leaving live view. It is the
+   * companion equivalent of the main page's opening look: arriving is already
+   * an explicit request to understand the shared screen. */
+  const describeFirstFrame = useCallback(() => {
+    if (introStartedRef.current) return;
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+    introStartedRef.current = true;
+    setSourceAspect(video.videoWidth / video.videoHeight);
+    void (async () => {
+      const seq = ++sendSeq.current;
+      setBusy(true);
+      setError(null);
+      setAnswer(null);
+      const started = performance.now();
+      try {
+        const first = await captureFrame(video);
+        const response = await askVision({
+          accessToken: await accessToken(),
+          imageBase64: first.base64,
+          mediaType: first.mediaType,
+          turns: [],
+          outputLanguage: outputLanguageFor(locale),
+          wantsAnnotations: false,
+        });
+        if (sendSeq.current !== seq) return;
+        setAnswer(response);
+        setElapsedMs(performance.now() - started);
+        setTurns([
+          { role: "user", text: tAsk("sharedScreen") },
+          { role: "assistant", text: response.result.message },
+        ]);
+      } catch (caught) {
+        if (sendSeq.current === seq) setError(errorText(caught, tErr("generic")));
+      } finally {
+        if (sendSeq.current === seq) setBusy(false);
+      }
+    })();
+  }, [locale, tAsk, tErr, errorText]);
 
   /** Keep the explanation inside the part of the viewport that is genuinely
    * visible. On iOS that is smaller than the layout viewport while the
@@ -362,18 +421,62 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
     placeBubbleRef.current();
   }, []);
 
-  useLayoutEffect(() => {
-    if (!capture) return;
+  const fitImageLayer = useCallback(() => {
     const viewport = viewportRef.current;
     const wrap = wrapRef.current;
     if (!viewport || !wrap) return;
+    const width = Math.min(viewport.clientWidth, viewport.clientHeight * sourceAspect);
+    const height = width / sourceAspect;
+    wrap.style.width = `${width}px`;
+    wrap.style.height = `${height}px`;
+  }, [sourceAspect]);
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const wrap = wrapRef.current;
+    if (!viewport || !wrap) return;
+    fitImageLayer();
     viewRef.current = { scale: 1, x: 0, y: 0 };
     applyView(viewRef.current);
-    const observer = new ResizeObserver(() => applyView(viewRef.current));
+    const observer = new ResizeObserver(() => {
+      fitImageLayer();
+      applyView(viewRef.current);
+    });
     observer.observe(viewport);
-    observer.observe(wrap);
     return () => observer.disconnect();
-  }, [capture, applyView]);
+  }, [sourceAspect, fitImageLayer, applyView]);
+
+  const pointInImage = useCallback((clientX: number, clientY: number): Point | null => {
+    const wrap = wrapRef.current;
+    if (!wrap) return null;
+    const box = wrap.getBoundingClientRect();
+    if (clientX < box.left || clientX > box.right || clientY < box.top || clientY > box.bottom) return null;
+    return {
+      x: clamp((clientX - box.left) / box.width, 0, 1),
+      y: clamp((clientY - box.top) / box.height, 0, 1),
+    };
+  }, []);
+
+  const openCapturedMark = useCallback(async (
+    subjectPromise: Promise<Capture>,
+    next: Pointer,
+    drawn: Point[] | null,
+  ) => {
+    try {
+      const subject = await subjectPromise;
+      setCapture(subject);
+      setSourceAspect(subject.width / subject.height);
+      setPointer(next);
+      setStroke(drawn);
+      setAnswer(null);
+      setTurns([]);
+      setAsked(null);
+      movedRef.current = false;
+      await send({ capture: subject, pointer: next, stroke: drawn, question: "", history: [] });
+    } catch {
+      setError(t("noFrameYet"));
+    }
+  }, [send, t]);
 
   const onImagePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const wrap = wrapRef.current;
@@ -381,6 +484,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
     if (!wrap || !viewport || !wrap.contains(event.target as Node)) return;
     const touch = { x: event.clientX, y: event.clientY };
     touchesRef.current.set(event.pointerId, touch);
+    if (!capture) event.currentTarget.setPointerCapture(event.pointerId);
     if (touchesRef.current.size === 1 && tool === "hand") {
       panRef.current = {
         pointerId: event.pointerId,
@@ -389,7 +493,19 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
         moved: false,
       };
     }
+    if (!capture && touchesRef.current.size === 1 && tool === "pen") {
+      const start = pointInImage(event.clientX, event.clientY);
+      if (start && videoRef.current) {
+        liveStrokeRef.current = [start];
+        setLiveInk([start]);
+        liveCaptureRef.current = captureFrame(videoRef.current);
+      }
+    }
     if (touchesRef.current.size !== 2) return;
+    pinchWasActiveRef.current = true;
+    liveStrokeRef.current = null;
+    liveCaptureRef.current = null;
+    setLiveInk(null);
     const [a, b] = [...touchesRef.current.values()];
     const center = midpoint(a, b);
     const box = viewport.getBoundingClientRect();
@@ -403,7 +519,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
       },
     };
     panRef.current = null;
-  }, [tool]);
+  }, [capture, pointInImage, tool]);
 
   const onImagePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (!touchesRef.current.has(event.pointerId)) return;
@@ -424,6 +540,14 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
       });
       return;
     }
+    if (!capture && tool === "pen" && touchesRef.current.size === 1 && liveStrokeRef.current) {
+      const next = pointInImage(event.clientX, event.clientY);
+      if (next) {
+        liveStrokeRef.current = [...liveStrokeRef.current, next];
+        setLiveInk(liveStrokeRef.current);
+      }
+      return;
+    }
     const pan = panRef.current;
     if (tool !== "hand" || !pan || pan.pointerId !== event.pointerId || touchesRef.current.size !== 1) return;
     const dx = event.clientX - pan.start.x;
@@ -436,18 +560,49 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
       x: pan.view.x + dx,
       y: pan.view.y + dy,
     });
-  }, [applyView, tool]);
+  }, [applyView, capture, pointInImage, tool]);
 
   const onImagePointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const pan = panRef.current;
+    const wasPinching = pinchWasActiveRef.current;
+    const liveStroke = liveStrokeRef.current;
+    const liveSubject = liveCaptureRef.current;
     touchesRef.current.delete(event.pointerId);
     if (touchesRef.current.size < 2) pinchRef.current = null;
     if (panRef.current?.pointerId === event.pointerId) panRef.current = null;
-  }, []);
+    if (wasPinching) {
+      if (touchesRef.current.size === 0) pinchWasActiveRef.current = false;
+      return;
+    }
+    if (capture) return;
+
+    if (tool === "hand" && pan?.pointerId === event.pointerId && !pan.moved) {
+      const at = pointInImage(event.clientX, event.clientY);
+      const video = videoRef.current;
+      if (at && video) {
+        void openCapturedMark(
+          captureFrame(video),
+          { kind: "point", point: at },
+          null,
+        );
+      }
+    } else if (tool === "pen" && liveStroke && liveSubject) {
+      const mark = markFrom(liveStroke);
+      void openCapturedMark(liveSubject, mark.pointer, mark.stroke);
+    }
+    liveStrokeRef.current = null;
+    liveCaptureRef.current = null;
+    setLiveInk(null);
+  }, [capture, openCapturedMark, pointInImage, tool]);
 
   const selectTool = useCallback((next: TouchTool) => {
     touchesRef.current.clear();
     pinchRef.current = null;
     panRef.current = null;
+    pinchWasActiveRef.current = false;
+    liveStrokeRef.current = null;
+    liveCaptureRef.current = null;
+    setLiveInk(null);
     setTool(next);
   }, []);
 
@@ -510,108 +665,84 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
   }, [pointer, writeBubble]);
 
   return (
-    <div className="fixed inset-0 bg-black">
-      {/* The live mirror. Always mounted: remounting drops the stream, and it
-          is the thing being watched. */}
-      <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
-
-      {!capture && (
-        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-[max(1rem,env(safe-area-inset-top))_1rem_max(1rem,env(safe-area-inset-bottom))]">
-          <div className="flex justify-end">
-            <span className={`pointer-events-auto rounded-full px-3 py-1 text-xs backdrop-blur ${connected ? "bg-green-500/20 text-green-200" : "bg-white/10 text-white/70"}`}>
-              {connected ? t("live") : t("waitingShort")}
-            </span>
-          </div>
-          <div className="pointer-events-auto space-y-2">
-            {error && <Notice tone="error">{error}</Notice>}
+    <main className="fixed inset-0 flex h-dvh flex-col overflow-hidden bg-black text-white">
+      <header className="flex shrink-0 items-center justify-between gap-2 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-1.5">
+        <span className="flex min-h-11 min-w-0 items-center gap-2 text-xs text-white/60">
+          <span className={`size-2 shrink-0 rounded-full ${connected ? "bg-green-400" : "bg-white/30"}`} aria-hidden />
+          <span className="truncate">{connected ? t("live") : t("waitingShort")}</span>
+        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <div role="group" aria-label={t("toolsLabel")} className="flex rounded-xl bg-white/10 p-1 shadow-sm">
             <button
-              onClick={freeze}
-              disabled={!connected}
-              className="w-full rounded-xl bg-iris px-4 py-4 text-base font-semibold text-white shadow-lg transition-colors active:bg-iris-deep disabled:opacity-40"
+              type="button"
+              data-tool="hand"
+              aria-label={t("handTool")}
+              aria-pressed={tool === "hand"}
+              title={t("handTool")}
+              onClick={() => selectTool("hand")}
+              className={`flex size-11 items-center justify-center rounded-lg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70 ${tool === "hand" ? "bg-iris text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
             >
-              {t("askAboutThis")}
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M7.5 11V6.5a1.5 1.5 0 0 1 3 0V10" /><path d="M10.5 10V5a1.5 1.5 0 0 1 3 0v5" /><path d="M13.5 10V6a1.5 1.5 0 0 1 3 0v5" /><path d="M16.5 11V8.5a1.5 1.5 0 0 1 3 0v5.25C19.5 18 16.25 21 12 21c-3 0-4.6-1.4-6.2-3.6l-2.1-2.9a1.6 1.6 0 0 1 2.5-2l1.3 1.25V11Z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              data-tool="pen"
+              aria-label={t("penTool")}
+              aria-pressed={tool === "pen"}
+              title={t("penTool")}
+              onClick={() => selectTool("pen")}
+              className={`flex size-11 items-center justify-center rounded-lg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70 ${tool === "pen" ? "bg-iris text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
+            >
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="m14.5 5.5 4 4" /><path d="m4 20 3.4-1 11.8-11.8a1.4 1.4 0 0 0 0-2l-.4-.4a1.4 1.4 0 0 0-2 0L5 16.6 4 20Z" /><path d="m13 8 4 4" />
+              </svg>
             </button>
           </div>
+          {capture ? (
+            <button type="button" onClick={dismiss} className="min-h-11 rounded-full bg-white/15 px-3 text-sm text-white transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70">
+              {t("backToLive")}
+            </button>
+          ) : (
+            <button type="button" onClick={stopWatching} aria-label={t("stopConnection")} title={t("stopConnection")} className="flex size-11 items-center justify-center rounded-full bg-white/10 text-white/60 transition-colors hover:bg-white/15 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70">
+              <span className="size-3.5 rounded-sm bg-current" aria-hidden />
+            </button>
+          )}
         </div>
-      )}
+      </header>
 
-      {capture && (
-        // Only the captured screen zooms. The header, return action and answer
-        // bubble stay at device size so zooming never makes the controls harder
-        // to use than the content they control.
-        <div className="absolute inset-0 flex flex-col bg-black">
-          <div className="flex items-center gap-2 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
-            <span className="min-w-0 flex-1 text-pretty text-xs leading-snug text-white/50">
-              {tool === "hand" ? t("handHint") : t("penHint")}
-            </span>
-            <div className="flex shrink-0 items-center gap-2">
-              <div
-                role="group"
-                aria-label={t("toolsLabel")}
-                className="flex rounded-xl bg-white/10 p-1 shadow-sm"
-              >
-                <button
-                  type="button"
-                  data-tool="hand"
-                  aria-label={t("handTool")}
-                  aria-pressed={tool === "hand"}
-                  title={t("handTool")}
-                  onClick={() => selectTool("hand")}
-                  className={`flex size-11 items-center justify-center rounded-lg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70 ${
-                    tool === "hand" ? "bg-iris text-white" : "text-white/60 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M7.5 11V6.5a1.5 1.5 0 0 1 3 0V10" />
-                    <path d="M10.5 10V5a1.5 1.5 0 0 1 3 0v5" />
-                    <path d="M13.5 10V6a1.5 1.5 0 0 1 3 0v5" />
-                    <path d="M16.5 11V8.5a1.5 1.5 0 0 1 3 0v5.25C19.5 18 16.25 21 12 21c-3 0-4.6-1.4-6.2-3.6l-2.1-2.9a1.6 1.6 0 0 1 2.5-2l1.3 1.25V11Z" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  data-tool="pen"
-                  aria-label={t("penTool")}
-                  aria-pressed={tool === "pen"}
-                  title={t("penTool")}
-                  onClick={() => selectTool("pen")}
-                  className={`flex size-11 items-center justify-center rounded-lg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70 ${
-                    tool === "pen" ? "bg-iris text-white" : "text-white/60 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="m14.5 5.5 4 4" />
-                    <path d="m4 20 3.4-1 11.8-11.8a1.4 1.4 0 0 0 0-2l-.4-.4a1.4 1.4 0 0 0-2 0L5 16.6 4 20Z" />
-                    <path d="m13 8 4 4" />
-                  </svg>
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={dismiss}
-                className="min-h-11 rounded-full bg-white/15 px-3 text-sm text-white transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70"
-              >
-                {t("backToLive")}
-              </button>
-            </div>
-          </div>
+      <p className="shrink-0 px-4 pb-1 text-center text-pretty text-xs leading-snug text-white/45">
+        {tool === "hand" ? t("handHint") : t("penHint")}
+      </p>
 
-          <div
-            ref={viewportRef}
-            data-companion-viewport=""
-            data-active-tool={tool}
-            className="relative min-h-0 flex-1 overflow-hidden overscroll-none"
-            style={{ touchAction: "none" }}
-            onPointerDown={onImagePointerDown}
-            onPointerMove={onImagePointerMove}
-            onPointerUp={onImagePointerEnd}
-            onPointerCancel={onImagePointerEnd}
-          >
-            <div
-              ref={wrapRef}
-              data-companion-image-layer=""
-              className="absolute left-0 top-0 w-full origin-top-left"
-            >
+      <div
+        ref={viewportRef}
+        data-companion-viewport=""
+        data-active-tool={tool}
+        className="relative min-h-0 flex-1 overflow-hidden overscroll-none"
+        style={{ touchAction: "none" }}
+        onPointerDown={onImagePointerDown}
+        onPointerMove={onImagePointerMove}
+        onPointerUp={onImagePointerEnd}
+        onPointerCancel={onImagePointerEnd}
+      >
+        <div ref={wrapRef} data-companion-image-layer="" className="absolute left-0 top-0 origin-top-left overflow-hidden rounded-xl shadow-2xl ring-1 ring-white/10">
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            onLoadedData={describeFirstFrame}
+            onResize={() => {
+              const video = videoRef.current;
+              if (video?.videoWidth && video.videoHeight) setSourceAspect(video.videoWidth / video.videoHeight);
+            }}
+            className={`block h-full w-full object-contain ${capture ? "opacity-0" : ""}`}
+          />
+          {!capture && liveInk && <Stroke points={liveInk} />}
+          {capture && (
+            <div className="absolute inset-0">
               <Snapshot
                 capture={capture}
                 pointer={pointer}
@@ -623,48 +754,21 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
                 interactionMode={tool === "hand" ? "tap" : "draw"}
               />
             </div>
-            {pointer !== null && (
-              <div
-                ref={bubbleRef}
-                className="absolute z-30"
-                style={{ left: 0, top: 0, visibility: "hidden" }}
-              >
-                <ExchangeBubble
-                  asked={asked}
-                  answer={answer}
-                  elapsedMs={elapsedMs}
-                  busy={busy}
-                  error={error}
-                  question={question}
-                  onQuestion={setQuestion}
-                  onSubmit={ask}
-                  onClose={close}
-                  grip={{ onGrab, onGrabMove, onGrabEnd }}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* A typed question with no mark belongs to no particular spot, so
-              its bubble waits at the bottom — the same resting place as the
-              solo page's (docs/pointing.md §3). */}
-          {pointer === null && (
-            <div className="flex justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-              <ExchangeBubble
-                asked={asked}
-                answer={answer}
-                elapsedMs={elapsedMs}
-                busy={busy}
-                error={error}
-                question={question}
-                onQuestion={setQuestion}
-                onSubmit={ask}
-                onClose={close}
-              />
-            </div>
           )}
         </div>
+
+        {pointer !== null && (
+          <div ref={bubbleRef} className="absolute z-30" style={{ left: 0, top: 0, visibility: "hidden" }}>
+            <ExchangeBubble asked={asked} answer={answer} elapsedMs={elapsedMs} busy={busy} error={error} question={question} onQuestion={setQuestion} onSubmit={ask} onClose={close} grip={{ onGrab, onGrabMove, onGrabEnd }} />
+          </div>
+        )}
+      </div>
+
+      {pointer === null && (
+        <div className="relative z-30 flex shrink-0 justify-center px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <ExchangeBubble asked={asked} answer={answer} elapsedMs={elapsedMs} busy={busy} error={error} question={question} onQuestion={setQuestion} onSubmit={ask} onClose={close} />
+        </div>
       )}
-    </div>
+    </main>
   );
 }
