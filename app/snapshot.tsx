@@ -165,22 +165,39 @@ export function Snapshot({
         {!drawing && pointer?.kind === "point" && (
           <div
             data-pin=""
-            className="io-mark pointer-events-none absolute h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-iris"
-            style={{ left: `${pointer.point.x * 100}%`, top: `${pointer.point.y * 100}%` }}
+            className="io-mark pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{
+              left: `${pointer.point.x * 100}%`,
+              top: `${pointer.point.y * 100}%`,
+              width: "calc(2.25rem * var(--io-overlay-scale, 1))",
+              height: "calc(2.25rem * var(--io-overlay-scale, 1))",
+              boxShadow: "inset 0 0 0 calc(2px * var(--io-overlay-scale, 1)) var(--color-iris)",
+            }}
           >
             {/* The halo carries the pulse rather than the ring itself, so the
                 thing the eye measures the position by never moves. */}
             <span
-              className={`io-pin-pulse absolute -inset-px rounded-full border-2 border-iris ${
+              className={`io-pin-pulse absolute rounded-full ${
                 thinking ? "io-pin-pulse-fast" : ""
               }`}
+              style={{
+                inset: "calc(-1px * var(--io-overlay-scale, 1))",
+                boxShadow: "inset 0 0 0 calc(2px * var(--io-overlay-scale, 1)) var(--color-iris)",
+              }}
             />
           </div>
         )}
 
         {annotations.map((annotation) => (
           <div key={annotation.id} className="pointer-events-none absolute" style={boxStyle(annotation.box)}>
-            <div data-box="" className="io-mark h-full w-full rounded-sm border-2 border-iris" />
+            <div
+              data-box=""
+              className="io-mark h-full w-full"
+              style={{
+                borderRadius: "calc(2px * var(--io-overlay-scale, 1))",
+                boxShadow: "inset 0 0 0 calc(2px * var(--io-overlay-scale, 1)) var(--color-iris)",
+              }}
+            />
             {annotation.label && (
               // The label grows away from the nearer edge. Anchored always to
               // the left it ran off the screen for anything in the right-hand
@@ -189,7 +206,17 @@ export function Snapshot({
               <span
                 className={`absolute whitespace-nowrap rounded bg-iris px-1.5 py-0.5 text-xs font-medium text-white ${
                   annotation.box.x + annotation.box.w / 2 > 0.5 ? "right-0" : "left-0"
-                } ${annotation.box.y + annotation.box.h > 0.88 ? "bottom-full mb-1" : "top-full mt-1"}`}
+                } ${annotation.box.y + annotation.box.h > 0.88 ? "bottom-full" : "top-full"}`}
+                style={{
+                  marginTop: annotation.box.y + annotation.box.h > 0.88
+                    ? undefined
+                    : "calc(4px * var(--io-overlay-scale, 1))",
+                  marginBottom: annotation.box.y + annotation.box.h > 0.88
+                    ? "calc(4px * var(--io-overlay-scale, 1))"
+                    : undefined,
+                  transform: "scale(var(--io-overlay-scale, 1))",
+                  transformOrigin: `${annotation.box.x + annotation.box.w / 2 > 0.5 ? "right" : "left"} ${annotation.box.y + annotation.box.h > 0.88 ? "bottom" : "top"}`,
+                }}
               >
                 {annotation.label}
               </span>
@@ -231,7 +258,7 @@ export function Stroke({ points }: { points: Point[] }) {
         strokeLinecap="round"
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"
-        style={{ strokeWidth: 3 }}
+        style={{ strokeWidth: "calc(3px * var(--io-overlay-scale, 1))" }}
       />
     </svg>
   );

@@ -348,8 +348,23 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
     const minTop = Math.max(margin, visibleTop + margin);
     const maxLeft = Math.max(minLeft, Math.min(box.width, visibleRight) - element.offsetWidth - margin);
     const maxTop = Math.max(minTop, Math.min(box.height, visibleBottom) - element.offsetHeight - margin);
+    element.style.bottom = "auto";
+    element.style.transform = "none";
     element.style.left = `${clamp(at.left, minLeft, maxLeft)}px`;
     element.style.top = `${clamp(at.top, minTop, maxTop)}px`;
+    element.style.visibility = "visible";
+  }, []);
+
+  /** The conversation starts in the lower open space, but it is never a
+   * different, immovable component. Keeping the same absolute element docked
+   * here means its grip can lift it away without a remount losing the finger. */
+  const dockBubble = useCallback(() => {
+    const element = bubbleRef.current;
+    if (!element || movedRef.current) return;
+    element.style.left = "50%";
+    element.style.top = "auto";
+    element.style.bottom = "max(0.75rem, env(safe-area-inset-bottom))";
+    element.style.transform = "translateX(-50%)";
     element.style.visibility = "visible";
   }, []);
 
@@ -418,6 +433,10 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
       ? (viewport.clientHeight - height) / 2
       : clamp(next.y, viewport.clientHeight - height, 0);
     viewRef.current = { scale, x, y };
+    // Coordinates follow the zoomed picture, but explanatory chrome is UI:
+    // counter-scale its pixels so borders, labels, pulses and the user's ink
+    // stay the same physical size as the fixed controls around the canvas.
+    wrap.style.setProperty("--io-overlay-scale", `${1 / scale}`);
     wrap.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
     placeBubbleRef.current();
   }, []);
@@ -609,8 +628,16 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
 
   const onGrab = useCallback((event: React.PointerEvent) => {
     const element = bubbleRef.current;
-    if (!element || !event.isPrimary) return;
+    const viewport = viewportRef.current;
+    if (!element || !viewport || !event.isPrimary) return;
     const rect = element.getBoundingClientRect();
+    const box = viewport.getBoundingClientRect();
+    // Convert the dock's bottom/translate positioning to top/left before
+    // pointer capture. The same DOM node remains under the finger throughout.
+    element.style.bottom = "auto";
+    element.style.transform = "none";
+    element.style.left = `${rect.left - box.left}px`;
+    element.style.top = `${rect.top - box.top}px`;
     grabbedAt.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
     event.currentTarget.setPointerCapture(event.pointerId);
     movedRef.current = true;
@@ -633,25 +660,30 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
 
   useLayoutEffect(() => {
     if (pointer) placeBubble();
-  }, [pointer, placeBubble]);
+    else dockBubble();
+  }, [pointer, placeBubble, dockBubble]);
 
   useEffect(() => {
     const element = bubbleRef.current;
-    if (!element || !pointer) return;
-    const observer = new ResizeObserver(placeBubble);
+    if (!element) return;
+    const place = () => {
+      if (movedRef.current) return;
+      if (pointer) placeBubble();
+      else dockBubble();
+    };
+    const observer = new ResizeObserver(place);
     observer.observe(element);
-    window.addEventListener("resize", placeBubble);
+    window.addEventListener("resize", place);
     return () => {
       observer.disconnect();
-      window.removeEventListener("resize", placeBubble);
+      window.removeEventListener("resize", place);
     };
-  }, [pointer, placeBubble]);
+  }, [pointer, placeBubble, dockBubble]);
 
   // The software keyboard takes the bottom half of the screen. Clamp the
   // unscaled bubble into the visual viewport without moving or scaling the
   // image beneath it.
   useEffect(() => {
-    if (!pointer) return;
     const viewport = window.visualViewport;
     if (!viewport) return;
     function onResize() {
@@ -663,7 +695,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
     }
     viewport.addEventListener("resize", onResize);
     return () => viewport.removeEventListener("resize", onResize);
-  }, [pointer, writeBubble]);
+  }, [writeBubble]);
 
   return (
     <main className="fixed inset-0 flex h-dvh flex-col overflow-hidden bg-black text-white">
@@ -758,18 +790,10 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
           )}
         </div>
 
-        {pointer !== null && (
-          <div ref={bubbleRef} className="absolute z-30" style={{ left: 0, top: 0, visibility: "hidden" }}>
-            <ExchangeBubble asked={asked} answer={answer} elapsedMs={elapsedMs} busy={busy} error={error} question={question} onQuestion={setQuestion} onSubmit={ask} onClose={close} grip={{ onGrab, onGrabMove, onGrabEnd }} />
-          </div>
-        )}
-      </div>
-
-      {pointer === null && (
-        <div className="relative z-30 flex shrink-0 justify-center px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <ExchangeBubble asked={asked} answer={answer} elapsedMs={elapsedMs} busy={busy} error={error} question={question} onQuestion={setQuestion} onSubmit={ask} onClose={close} />
+        <div ref={bubbleRef} className="absolute z-30" style={{ left: 0, top: 0, visibility: "hidden" }}>
+          <ExchangeBubble asked={asked} answer={answer} elapsedMs={elapsedMs} busy={busy} error={error} question={question} onQuestion={setQuestion} onSubmit={ask} onClose={close} grip={{ onGrab, onGrabMove, onGrabEnd }} />
         </div>
-      )}
+      </div>
     </main>
   );
 }
