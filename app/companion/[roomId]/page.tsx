@@ -272,6 +272,7 @@ function Companion({ roomId, session }: { roomId: string; session: Session }) {
   }, [capture, send]);
 
   const ask = useCallback(() => {
+    if (!question.trim() && !pointer) return;
     void (async () => {
       let subject = capture;
       if (!subject) {
