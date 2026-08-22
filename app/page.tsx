@@ -152,7 +152,7 @@ function Home() {
    * front door and a hall of mirrors.
    */
   const [selfShare, setSelfShare] = useState(false);
-  const [probe, setProbe] = useState<{ pulse: number; release: number; drift: number } | null>(null);
+  const [probe, setProbe] = useState<{ followed: number; strongest: number } | null>(null);
   /** Drives the wash's pulse. Read by the wash's style; written by the probe. */
   const [pulsing, setPulsing] = useState(false);
   /** The first look is in flight. Separate from `busy` because the wash and
@@ -1794,9 +1794,9 @@ function DebugPanel({
   index: number;
   buffered: boolean;
   watched: boolean;
-  /** The self-share probe's three readings (lib/self-share.ts). The verdict is
-   * only arguable if the numbers behind it can be read. */
-  probe: { pulse: number; release: number; drift: number } | null;
+  /** The self-share probe's readings (lib/self-share.ts). The verdict is only
+   * arguable if the numbers behind it can be read. */
+  probe: { followed: number; strongest: number } | null;
   selfShare: boolean;
   /** Frame-to-frame drift, newest first, tagged 表/裏 by whether this tab had
    * focus. Only decisive on a window that changes by itself
@@ -1806,7 +1806,7 @@ function DebugPanel({
   const gaps = report?.intervals ?? [];
   const route = report === null ? "未取得" : report.viaTrack ? "track (ImageCapture)" : "video element";
   const probed = probe
-    ? `自己共有 ${selfShare ? "YES" : "no"}（脈 ${probe.pulse.toFixed(3)} / 戻り ${probe.release.toFixed(3)} / 流れ ${probe.drift.toFixed(3)}）`
+    ? `自己共有 ${selfShare ? "YES" : "no"}（追従したマス ${probe.followed}/256 ・最大 ${probe.strongest.toFixed(3)}）`
     : "自己共有 未測定";
   if (!buffered) {
     // Saying "0 candidates" here would read as a buffer that found nothing,
