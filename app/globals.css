@@ -15,6 +15,9 @@
   --color-paper: #f7f8fa;
   --color-iris: #5b5cff;
   --color-iris-deep: #4849e8;
+  /* Part of the shared palette, kept so the two repos stay comparable. Nothing
+     in the app paints with it any more: everything that means "here, this, the
+     thing you acted on" is iris (app/snapshot.tsx). */
   --color-cyan: #37d5f2;
   --color-coral: #ff6b6b;
   --color-carbon: #2a2c33;
@@ -56,6 +59,74 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .io-fade-up {
     animation: none;
+  }
+}
+
+/* ---- The question field (app/bubble.tsx) ----
+   16px is not a design choice here, it is iOS Safari's: a focused input under
+   16px makes the page zoom itself in, which on the companion would throw the
+   picture and the bubble off screen mid-question. So the size is conditioned on
+   the input device rather than the screen — where there is a real pointer there
+   is no touch keyboard to trigger it, and the field can sit at the same 13px as
+   the answer above it instead of shouting over it. */
+.io-ask-field {
+  font-size: 16px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .io-ask-field {
+    font-size: 13px;
+  }
+}
+
+/* ---- Marks on arbitrary screens (app/snapshot.tsx) ----
+   One accent colour has to survive being drawn on anything, and iris on a
+   saturated blue application very nearly disappears — seen in a screenshot,
+   not reasoned about. A soft dark shadow separates the mark from whatever is
+   under it without bringing in a second hue. `drop-shadow` follows the
+   rendered alpha, so a transparent bordered box is outlined along its border
+   rather than filled. */
+.io-mark {
+  filter: drop-shadow(0 0 1.5px rgba(16, 17, 20, 0.65));
+}
+
+/* ---- The pin's pulse (app/snapshot.tsx) ----
+   A halo that swells out of the ring and fades, then holds still before going
+   again. The hold is the point: a relentless ping reads as a spinner, while a
+   pulse with a rest between beats reads as a place — "here", said repeatedly.
+   Scale and opacity only, so it costs no layout over live video. */
+@keyframes ioPin {
+  0% {
+    transform: scale(1);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.7;
+  }
+  62% {
+    transform: scale(2.05);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.05);
+    opacity: 0;
+  }
+}
+/* ease-out, not an expo curve: measured, cubic-bezier(0.16, 1, 0.3, 1) put the
+   ring at 2.2x with nothing left to see inside 450ms of a 2s cycle, which reads
+   as a blip and then a fault. */
+.io-pin-pulse {
+  animation: ioPin 1.8s ease-out infinite;
+}
+/* While the answer is being read, the same beat runs quicker. Nothing appears
+   or disappears when the answer lands — the tempo simply settles. */
+.io-pin-pulse-fast {
+  animation-duration: 1.05s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .io-pin-pulse {
+    animation: none;
+    opacity: 0.35;
   }
 }
 

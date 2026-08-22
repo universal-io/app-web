@@ -23,6 +23,13 @@ import { Notice } from "@/app/ui";
  * types to show that answering takes an act; the real thing has an actual wait
  * to show, and padding it with theatre would be lying about the latency in the
  * other direction.
+ *
+ * It is also the only thing here that talks. Whatever the page needs to say —
+ * what is on screen and why, what to do about it, which of several screens is
+ * the one you meant — is said from this one card, because a product whose
+ * claim is "ask the thing beside you" cannot answer from one place and lecture
+ * from another. Notices used to appear in the middle of the picture; the
+ * middle of the picture is where the user is trying to look.
  */
 
 export function ExchangeBubble({
@@ -36,6 +43,8 @@ export function ExchangeBubble({
   onSubmit,
   onClose,
   grip,
+  say,
+  offer,
 }: {
   /** The typed question this exchange is about; null when they only pointed. */
   asked: string | null;
@@ -55,6 +64,18 @@ export function ExchangeBubble({
     onGrabMove: (event: React.PointerEvent) => void;
     onGrabEnd: (event: React.PointerEvent) => void;
   };
+  /** What the page has to say about the state it is in, when it is not busy
+   * answering something. Two lines at most: where you are, and what to do. */
+  say?: { title: string; lead: string } | null;
+  /** Screens the user was looking at a moment ago, offered as a question
+   * rather than presented as a strip of controls: the buffer's whole job is to
+   * ask "was it this one?" (docs/solo-mode.md §4). */
+  offer?: {
+    prompt: string;
+    screens: { id: string; src: string }[];
+    index: number;
+    onPick: (at: number) => void;
+  } | null;
 }) {
   const t = useTranslations("ask");
   const reduce = useReducedMotion();
@@ -112,6 +133,40 @@ export function ExchangeBubble({
       )}
 
       <div className={`space-y-2 px-3.5 pb-3.5 ${bar ? "pt-1" : "pt-3.5"}`}>
+      {/* The page speaking, above whatever exchange is going on. Suppressed
+          while there is an exchange: an answer and an explanation of the mode
+          are two different subjects, and the bubble holds one at a time. */}
+      {say && empty && (
+        <div className="space-y-1">
+          <p className="text-[13px] font-medium leading-relaxed text-white/90">{say.title}</p>
+          <p className="text-[12px] leading-relaxed text-white/60">{say.lead}</p>
+        </div>
+      )}
+
+      {/* Kept visible even mid-exchange, because it is the way to change the
+          subject: picking another screen is how you ask about something else,
+          and hiding it behind "close this answer first" adds a step to the one
+          thing this mode exists for. */}
+      {offer && offer.screens.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[12px] leading-relaxed text-white/60">{offer.prompt}</p>
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {offer.screens.map((screen, at) => (
+              <button
+                key={screen.id}
+                onClick={() => offer.onPick(at)}
+                className={`shrink-0 overflow-hidden rounded-md border-2 transition ${
+                  at === offer.index ? "border-iris" : "border-transparent opacity-60 hover:opacity-100"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={screen.src} alt="" className="h-11 w-[4.6rem] object-cover" draggable={false} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {asked && (
         <div className="flex justify-end">
           <span className="max-w-[85%] rounded-xl rounded-br-sm bg-iris px-2.5 py-1.5 text-[12px] leading-snug text-white">
@@ -182,7 +237,7 @@ function Reading({ label, reduce }: { label: string; reduce: boolean }) {
           {[0, 1, 2].map((at) => (
             <span
               key={at}
-              className="io-think-dot h-1.5 w-1.5 rounded-full bg-cyan"
+              className="io-think-dot h-1.5 w-1.5 rounded-full bg-iris"
               style={{ animationDelay: `${at * 0.16}s` }}
             />
           ))}
@@ -206,7 +261,7 @@ export function QuestionInput({
 }) {
   const t = useTranslations("ask");
   return (
-    <div className="flex gap-2">
+    <div className="flex items-center gap-1.5">
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -215,7 +270,9 @@ export function QuestionInput({
           if (event.key === "Enter" && !event.nativeEvent.isComposing) onSubmit();
         }}
         aria-label={t("placeholder")}
-        className="min-w-0 flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-base text-white"
+        // io-ask-field carries the type size: 16px where a touch keyboard
+        // exists, the bubble's own 13px where there is a mouse (globals.css).
+        className="io-ask-field min-w-0 flex-1 rounded-lg border border-white/15 bg-white/10 px-2.5 py-1.5 text-white"
       />
       <button
         // Called with no arguments on purpose. Handing `onSubmit` straight to
@@ -226,9 +283,20 @@ export function QuestionInput({
         // assignable to an event handler.
         onClick={() => onSubmit()}
         disabled={busy}
-        className="shrink-0 rounded-[10px] bg-iris px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-iris-deep disabled:opacity-40"
+        // A paper plane, not the word "聞く". The label was making a claim the
+        // button does not get to make — the user decides what asking means,
+        // and pointing is already a question. Sending is the whole of what
+        // this control does, and the plane is what every message field on the
+        // machine already uses for it. The word survives as the accessible
+        // name, so nothing is lost to a screen reader.
+        aria-label={t("send")}
+        title={t("send")}
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-iris text-white transition-colors hover:bg-iris-deep disabled:opacity-40"
       >
-        {busy ? t("sending") : t("send")}
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M4.3 11.5 20 4.6a.5.5 0 0 1 .67.66l-6.9 15.7a.5.5 0 0 1-.93-.06l-1.9-6.1a.5.5 0 0 0-.32-.33l-6.1-1.9a.5.5 0 0 1-.06-.93Z" />
+          <path d="m10.9 13.1 3.8-3.8" />
+        </svg>
       </button>
     </div>
   );

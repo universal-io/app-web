@@ -269,7 +269,7 @@ function Caret() {
   return (
     <span
       aria-hidden
-      className="ml-[1px] inline-block h-[13px] w-[2px] translate-y-[2px] animate-pulse bg-cyan"
+      className="ml-[1px] inline-block h-[13px] w-[2px] translate-y-[2px] animate-pulse bg-iris"
     />
   );
 }

@@ -192,7 +192,9 @@ async function open(surface, holdsFocus = false) {
 }
 
 const panel = (page) => page.locator("div.font-mono").first().innerText();
-const strip = (page) => page.locator("img.h-12").count();
+/** The screens on offer, which live inside the bubble — there is one place
+ * that talks to the user, and the buffer speaks from it like everything else. */
+const strip = (page) => page.locator("[data-bubble] img").count();
 
 // ── サインインしていない場合 ──────────────────────────────
 // The page is free to look at — only a question costs anything — so there is
@@ -224,12 +226,52 @@ console.log("\n[サインインしていない]");
   await page.close();
 }
 
-// ── 画面全体を共有した場合 ────────────────────────────────
+// ── 画面全体を共有した場合（ライブが既定） ────────────────
 console.log("\n[画面全体を共有]");
 {
   const page = await open("monitor");
-  await page.waitForSelector("text=分からない画面に戻ってください");
-  check(true, "共有直後は「戻ってください」の一文だけ");
+  await page.waitForSelector("video");
+  check(
+    (await page.locator("video").first().isVisible()) &&
+      (await page.locator('img[alt="共有された画面"]').count()) === 0,
+    "共有直後からライブ映像が出る（静止画も指示文も無い）",
+  );
+  check(
+    (await page.locator("text=分からない画面に戻ってください").count()) === 0,
+    "「戻ってください」は存在しない",
+  );
+  check((await page.locator("div[data-guide]").count()) === 1, "指す前はカバーとスポットライトが出ている");
+  check((await panel(page)).includes("表示 ライブ"), "デバッグパネルがライブ表示を報告する");
+
+  // Whole-monitor sharing is the one case that cannot explain itself: the
+  // picture may well be this page, and nobody works out on their own that the
+  // way through is to go elsewhere and come back. The bubble says so — and
+  // says it conditionally, because which monitor was shared is not knowable
+  // (capabilities.md §4-B).
+  check(
+    await page.locator("[data-bubble]").getByText("画面全体を共有しています").isVisible(),
+    "画面全体のときは、コンパニオンがその状況を説明する",
+  );
+  check(
+    await page.locator("[data-bubble]").getByText("解説してほしい画面へ一度行き").isVisible(),
+    "「行って戻る」という次の一手まで言う",
+  );
+
+  // Pointing at the live picture freezes that moment and asks about it — the
+  // same gesture as a watched tab. This is the dual-monitor case: the shared
+  // monitor is another one, so live is exactly right and must be pointable.
+  sent.length = 0;
+  const live = await page.locator("video").first().boundingBox();
+  await page.mouse.click(live.x + live.width / 2, live.y + live.height / 2);
+  await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
+  check(true, "ライブをクリックすると静止する");
+  check((await page.locator("[data-pin]").count()) === 1, "その1クリックがそのまま印になる");
+  check(await page.locator("text=読んでいます…").isVisible(), "答えを待つ間「読んでいます…」が出る");
+  await page.waitForSelector("text=これはテストの回答です。", { timeout: 10000 });
+  check(sent.length === 1 && sent[0]?.input?.pointer?.kind === "point", "指した1点が送られている");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "Escで閉じるとライブに戻る");
 
   // Turning away briefly must record nothing: the first frame after a switch
   // would still be of this page, which is the one screen never worth keeping.
@@ -237,7 +279,8 @@ console.log("\n[画面全体を共有]");
   await page.waitForTimeout(400);
   await page.evaluate(() => window.__setAway(false));
   await page.waitForTimeout(300);
-  check(await page.locator("text=分からない画面に戻ってください").isVisible(), "一瞬離れただけでは何も残らない");
+  check((await strip(page)) === 0, "一瞬離れただけでは何も残らない");
+  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "戻ってもライブのまま");
 
   await page.evaluate(() => window.__setAway(true));
   await page.evaluate(() => window.__paint("sidebar"));
@@ -258,22 +301,74 @@ console.log("\n[画面全体を共有]");
   check((await strip(page)) === 2, "似た配色でも別アプリは別候補になり、スクロールでは増えない", `候補=${await strip(page)}`);
   check(
     (await page.locator('img[alt="共有された画面"]').count()) === 1,
-    "戻ると画面が大写しになっている",
+    "離れて戻ると、直前に見ていた画面が大写しになっている",
   );
 
   const shown = await page.locator('img[alt="共有された画面"]').getAttribute("src");
-  check(shown === (await page.locator("img.h-12").first().getAttribute("src")), "大写しは最新の候補");
+  check(shown === (await page.locator("[data-bubble] img").first().getAttribute("src")), "大写しは最新の候補");
+
+  /**
+   * The rescue has to say it is a rescue.
+   *
+   * Having chosen to watch their own screen, the user can only ever be shown
+   * themselves live — so what is on display after coming back is a frame kept
+   * while they were away, which is a different thing from everything else in
+   * the product and never said so. Unexplained, it just looks like the picture
+   * quietly stopped following along.
+   */
+  check(
+    (await page.locator('[data-mode="guide"]').count()) === 1,
+    "戻ってきた直後はガイド（＝ライブではない）",
+  );
+  check(
+    await page.locator("[data-bubble]").getByText("これはスクリーンショットです").isVisible(),
+    "コンパニオンが「これはスクリーンショットです」と言う",
+  );
+  check(
+    await page.locator("[data-bubble]").getByText("ライブにこのページ自身が映ることがある").isVisible(),
+    "なぜ静止画なのか（合わせ鏡）まで言う",
+  );
+  check(
+    await page.locator("[data-bubble]").getByText("これについて解説しますか").isVisible(),
+    "そのうえで「解説しますか」と聞く",
+  );
+  check(
+    (await page.locator("[data-bubble]").getByText("画面全体を共有しています").count()) === 0,
+    "候補が出たら、もう「行って戻る」の案内は言わない",
+  );
 
   const box = await page.locator('img[alt="共有された画面"]').boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await page.waitForTimeout(250);
-  check((await page.locator("div.rounded-full.border-cyan").count()) === 1, "タップで印がつく");
+  check((await page.locator("[data-pin]").count()) === 1, "タップで印がつく");
 
-  await page.locator("img.h-12").nth(1).click();
+  sent.length = 0;
+  await page.locator("[data-bubble] img").nth(1).click();
   await page.waitForTimeout(250);
   const swapped = await page.locator('img[alt="共有された画面"]').getAttribute("src");
   check(swapped !== shown, "候補を選ぶと大写しが切り替わる");
-  check((await page.locator("div.rounded-full.border-cyan").count()) === 0, "画面を変えると前の印は消える");
+  check((await page.locator("[data-pin]").count()) === 0, "画面を変えると前の印は消える");
+
+  // The bubble asked "was it this one?", so a tap has to be answered. It used
+  // to swap the picture and say nothing, which reads as a control that did not
+  // work — and did, to the person who built it.
+  //
+  // Waited for by watching the request rather than the answer text: the answer
+  // from the previous tap is still on screen, so waiting for those words
+  // returns instantly and reads a `sent` that has not been filled yet.
+  for (let waited = 0; waited < 40 && sent.length === 0; waited += 1) {
+    await page.waitForTimeout(100);
+  }
+  check(
+    sent.length === 1 && sent[0]?.input?.question?.includes("この画面について"),
+    "候補をタップすると、その画面の説明がすぐ返ってくる",
+    sent[0]?.input?.question ?? "何も送っていない",
+  );
+  await page.waitForSelector("text=これはテストの回答です。", { timeout: 10000 });
+  check(
+    swapped === (await page.locator("[data-bubble] img").nth(1).getAttribute("src")),
+    "説明されているのは、タップした画面そのもの",
+  );
 
   // Returning must jump back to the newest screen without being asked.
   await page.evaluate(() => window.__setAway(true));
@@ -283,37 +378,86 @@ console.log("\n[画面全体を共有]");
   await page.waitForTimeout(500);
   const afterReturn = await page.locator('img[alt="共有された画面"]').getAttribute("src");
   check(
-    afterReturn === (await page.locator("img.h-12").first().getAttribute("src")),
+    afterReturn === (await page.locator("[data-bubble] img").first().getAttribute("src")),
     "また戻ると最新の画面が出ている",
   );
 
-  await page.getByRole("button", { name: "共有をやめる" }).click();
+  // The margin around the picture is "outside": clicking it puts the still
+  // away, which on a live surface means back to the moving picture.
+  await page.mouse.click(8, 400);
+  await page.waitForTimeout(300);
+  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "余白をクリックするとライブに戻る");
+
+  await page.getByRole("button", { name: "ホームに戻る（共有をやめます）" }).click();
   await page.waitForTimeout(250);
   check((await page.getByRole("button", { name: "画面を選ぶ" }).count()) === 1, "やめると初期状態に戻る");
   check((await strip(page)) === 0, "やめると候補も消える");
   await page.close();
 }
 
-// ── ウィンドウを共有した場合 ──────────────────────────────
+// ── ウィンドウを共有した場合（ライブが既定） ──────────────
 console.log("\n[ウィンドウを共有]");
 {
   const page = await open("window");
-  await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
-  check(true, "指示を出さずに、すぐ画面が出る");
-  check((await strip(page)) === 0, "候補の切り替えは出ない");
+  await page.waitForSelector("video");
+
+  /**
+   * A window is live like everything else, and looks like everything else.
+   *
+   * It was on a still for as long as the product existed, on the untested
+   * theory that the OS stops drawing a window that is not in front. Measured on
+   * a real share, an unfocused window kept producing 0.03–0.04 of real change
+   * per second where a stopped source reads exactly 0.000 (log.md 2026-08-22).
+   *
+   * This section also used to check three things, none of them the wash, the
+   * bubble or a word of guidance — so "does a window share look like the rest
+   * of the product" was never asked at all.
+   */
   check(
-    !(await page.locator("text=分からない画面に戻ってください").isVisible()),
-    "「戻ってください」は出さない",
+    (await page.locator("video").first().isVisible()) &&
+      (await page.locator('img[alt="共有された画面"]').count()) === 0,
+    "共有直後からライブ映像が出る（静止画ではない）",
+  );
+  check((await strip(page)) === 0, "候補の切り替えは出ない");
+  check((await page.locator("div[data-guide]").count()) === 1, "指す前はカバーとスポットライトが出ている");
+  check((await page.locator('[data-mode="live"]').count()) === 1, "右上は「ライブ」と名乗る");
+  check(
+    await page.locator("[data-bubble]").getByText("ウィンドウを共有しています").isVisible(),
+    "コンパニオンが、いま何を見ているかを言う",
+  );
+  check(
+    (await page.locator("[data-bubble]").getByText("いま映っているのは静止画です").count()) === 0,
+    "もう「静止画です」とは言わない",
   );
 
-  const before = await page.locator('img[alt="共有された画面"]').getAttribute("src");
+  // Pointing on live video freezes that moment and asks about it, exactly as
+  // on the other two surfaces.
+  sent.length = 0;
+  const live = await page.locator("video").first().boundingBox();
+  await page.mouse.click(live.x + live.width / 2, live.y + live.height / 2);
+  await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
+  check((await page.locator("[data-pin]").count()) === 1, "ライブをクリックすると静止して印がつく");
+  await page.waitForSelector("text=これはテストの回答です。", { timeout: 10000 });
+  check(
+    sent.length === 1 && sent[0]?.input?.pointer?.kind === "point",
+    "クリックすればそのまま解説が走る（他と同じ）",
+  );
+  check((await page.locator('[data-mode="guide"]').count()) === 1, "静止している間は「ガイド」と名乗る");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  check((await page.locator('img[alt="共有された画面"]').count()) === 0, "Escで閉じるとライブに戻る");
+
+  // Going to the window and back must leave the live view alone: there is
+  // nothing to re-take when the picture never stopped.
   await page.evaluate(() => window.__setAway(true));
   await page.evaluate(() => window.__paint("rows"));
   await page.waitForTimeout(600);
   await page.evaluate(() => window.__setAway(false));
   await page.waitForTimeout(900);
-  const after = await page.locator('img[alt="共有された画面"]').getAttribute("src");
-  check(after !== before, "戻ってくると撮り直されている");
+  check(
+    (await page.locator('img[alt="共有された画面"]').count()) === 0,
+    "行って戻ってもライブのまま（撮り直しは要らない）",
+  );
   await page.close();
 }
 
@@ -321,7 +465,7 @@ console.log("\n[ウィンドウを共有]");
 console.log("\n[タブを共有・フォーカス保持]");
 {
   const page = await open("browser", true);
-  await page.waitForSelector("text=タブ共有・フォーカス保持あり");
+  await page.waitForSelector("text=ライブ表示・バッファなし");
   check(true, "タブ共有としてフォーカス保持ありで開始する");
   check(
     (await page.locator("video").first().isVisible()) &&
@@ -329,6 +473,36 @@ console.log("\n[タブを共有・フォーカス保持]");
     "既定はライブ映像で、静止画は出ていない",
   );
   check((await strip(page)) === 0, "候補バッファは動かない");
+
+  // Live and held-still look identical when nothing on the shared screen is
+  // moving, so the live state has to say so — its absence is what marks the
+  // still. Checked in both directions: a badge that never leaves says nothing.
+  // Located by its attribute, not its wording: `text=ライブ` also matched the
+  // debug panel's "ライブ表示" and reported the badge in states it was not in.
+  const liveBadge = page.locator('[data-mode="live"]');
+  check((await liveBadge.count()) === 1, "ライブのときは右上に「ライブ」の印が出る");
+
+  // With nothing pointed at, the bubble waits in the bottom-right corner. The
+  // browser's own "you are sharing your screen" bar is an OS-level window
+  // floating at the bottom centre, and it covered the question box outright
+  // when the bubble waited there. That bar is not in the document, so this can
+  // only be checked as "not in the middle third along the bottom".
+  {
+    const view = page.viewportSize();
+    const at = await page.locator("[data-bubble]").boundingBox();
+    const right = at.x + at.width;
+    const bottom = at.y + at.height;
+    check(
+      right > view.width - 40 && bottom > view.height - 40,
+      "何も指していないとき、バブルは右下で待つ",
+      `右端まで${Math.round(view.width - right)}px・下端まで${Math.round(view.height - bottom)}px`,
+    );
+    check(
+      at.x > view.width * 0.34,
+      "共有バーが浮く下部中央には置かない",
+      `左端 ${Math.round(at.x)}px > ${Math.round(view.width * 0.34)}px`,
+    );
+  }
 
   // Freezing is what makes a question answerable at all, but it is not a step
   // the user performs: touching the live picture does it, and the touch itself
@@ -338,6 +512,18 @@ console.log("\n[タブを共有・フォーカス保持]");
   // first move — and gets out of the way once it has been made.
   const spotlight = page.locator("div[data-guide]");
   check((await spotlight.count()) === 1, "指す前はカバーとスポットライトが出ている");
+
+  // The page says what it is and what to do, and it says it from the bubble —
+  // the one thing here that talks. It used to be a card in the middle of the
+  // picture, which is exactly where the user is trying to look.
+  check(
+    await page.locator("[data-bubble]").getByText("この画面について解説します").isVisible(),
+    "何もしていない間、コンパニオンが何をすればいいか言う",
+  );
+  check(
+    (await page.locator("[data-invite]").count()) === 0,
+    "絵の真ん中には何も置かない",
+  );
   // The wash is paint, not a filter: a tint and a lattice, and nothing that
   // touches the brightness of what shows through. It was a dimming filter once
   // — the version before that laid blue over the picture and inverted on dark
@@ -391,8 +577,15 @@ console.log("\n[タブを共有・フォーカス保持]");
   await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
   check(true, "ライブをクリックすると静止する（ボタンは無い）");
   check(
-    (await page.locator("div.rounded-full.border-cyan").count()) === 1,
+    (await page.locator("[data-pin]").count()) === 1,
     "その1クリックがそのまま印になる",
+  );
+  // The pair is the point: an absence is not a label, so the still has to name
+  // itself rather than be inferred from the live badge being gone.
+  check((await liveBadge.count()) === 0, "静止したら「ライブ」の印は消える");
+  check(
+    (await page.locator('[data-mode="guide"]').count()) === 1,
+    "静止している間は「ガイド」と名乗る",
   );
 
   // The wait must be visible: between the click and the answer there is
@@ -418,7 +611,7 @@ console.log("\n[タブを共有・フォーカス保持]");
 
   // The mark must land where the click did, not offset by the letterbox that
   // object-contain puts above and below the picture.
-  const ring = await page.locator("div.rounded-full.border-cyan").boundingBox();
+  const ring = await page.locator("[data-pin]").boundingBox();
   const shot = await page.locator('img[alt="共有された画面"]').boundingBox();
   const offBy = Math.hypot(
     ring.x + ring.width / 2 - (shot.x + shot.width / 2),
@@ -426,9 +619,13 @@ console.log("\n[タブを共有・フォーカス保持]");
   );
   check(offBy < 12, "印の位置がクリック位置と一致する", `ズレ ${offBy.toFixed(1)}px`);
 
+  // There is still no button that turns live *on* — the picture stops because
+  // you touched it, never because you asked it to. What exists now is the way
+  // back out of an explanation, which is a different thing and lives in the
+  // corner (checked below).
   check(
-    (await page.getByRole("button", { name: "ライブに戻る" }).count()) === 0,
-    "「ライブに戻る」のようなモード切替ボタンは無い",
+    (await page.getByRole("button", { name: "ライブにする" }).count()) === 0,
+    "ライブを「入れる」ボタンは無い（触れば止まる、それだけ）",
   );
 
   // The picture must not move when it stops moving. A tap that makes its own
@@ -453,18 +650,67 @@ console.log("\n[タブを共有・フォーカス保持]");
   // about, which is the only prompt it needs. The words remain as the field's
   // accessible name, so it is still announced.
   await page.locator("[data-bubble] input").fill("これは何ですか");
-  await page.getByRole("button", { name: "聞く" }).click();
+  // The button wears a paper plane, not a word: "聞く" survives only as its
+  // accessible name, which is what this looks it up by.
+  const send = page.getByRole("button", { name: "聞く" });
+  check(
+    (await send.locator("svg").count()) === 1 && (await send.innerText()).trim() === "",
+    "送信ボタンは文字ではなく紙飛行機のアイコン",
+  );
+  await send.click();
   await page.waitForSelector("text=これはテストの回答です。", { timeout: 10000 });
-  check(true, "「聞く」ボタンで質問が通り、回答が出る");
+  check(true, "送信ボタンで質問が通り、回答が出る");
+
+  // The typed question must not shout over the answer it sits under. On a
+  // desktop the field matches the answer's own size; a touch device keeps 16px
+  // so that iOS Safari does not zoom the page on focus.
+  {
+    const field = await page
+      .locator("[data-bubble] input")
+      .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    const answerText = await page
+      .locator("[data-bubble] p")
+      .first()
+      .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    check(field === answerText, "入力欄の文字は回答と同じ大きさ", `入力 ${field}px / 回答 ${answerText}px`);
+  }
   check(
     sent.length === 1 && typeof sent[0]?.input?.image_base64 === "string" && sent[0].input.image_base64.length > 1000,
     "送っているのは画面の画像そのもの",
     `${sent[0]?.input?.image_base64?.length ?? 0} bytes`,
   );
   check(
-    (await page.locator("div.border-amber-400").count()) === 1,
+    (await page.locator("[data-box]").count()) === 1,
     "返ってきた枠が画面に描かれる",
   );
+
+  /**
+   * The corner button goes back one step, and says which step.
+   *
+   * It used to be a ✕ that ended the share in both states, and the ✕ people
+   * meant was "get me out of this explanation" — so pressing it threw the
+   * share away instead. Now the ✕ only appears where it does that, and the way
+   * out wears a house.
+   */
+  {
+    check(
+      (await page.getByRole("button", { name: "ライブに戻る" }).count()) === 1 &&
+        (await page.getByRole("button", { name: "ホームに戻る（共有をやめます）" }).count()) === 0,
+      "解説が出ている間、右上は「ライブに戻る」",
+    );
+    await page.getByRole("button", { name: "ライブに戻る" }).click();
+    await page.waitForTimeout(300);
+    check(
+      (await page.locator('img[alt="共有された画面"]').count()) === 0,
+      "それを押すとライブに戻る（共有は終わらない）",
+    );
+    check(
+      (await page.getByRole("button", { name: "ホームに戻る（共有をやめます）" }).count()) === 1 &&
+        (await page.getByRole("button", { name: "ライブに戻る" }).count()) === 0,
+      "ライブに戻ると、右上はホームボタンになる",
+    );
+  }
+
   await page.getByRole("button", { name: "いまの画面を取り直す" }).click();
   await page.waitForTimeout(200);
 
@@ -500,11 +746,11 @@ console.log("\n[タブを共有・フォーカス保持]");
   }
 
   check(
-    (await page.getByRole("button", { name: "共有をやめる" }).count()) === 1 &&
-      (await page.getByRole("button", { name: "いまの画面を取り直す" }).count()) === 1 &&
+    (await page.getByRole("button", { name: "いまの画面を取り直す" }).count()) === 1 &&
       (await page.getByRole("button", { name: "スマホ・タブレットで見る" }).count()) === 1,
-    "操作は右上の小さなアイコン3つだけ（取り直し・QR・停止）",
+    "操作は右上の小さなアイコン3つだけ（取り直し・QR・戻る）",
   );
+
   await page.getByRole("button", { name: "いまの画面を取り直す" }).click();
   await page.waitForTimeout(250);
   check((await page.locator('img[alt="共有された画面"]').count()) === 0, "取り直しで動く画面に戻る");
@@ -518,7 +764,7 @@ console.log("\n[タブを共有・フォーカス保持]");
   await page.waitForSelector('img[alt="共有された画面"]', { timeout: 8000 });
   check(
     (await page.locator("svg polyline").count()) === 1 &&
-      (await page.locator("div.rounded-full.border-cyan").count()) === 0,
+      (await page.locator("[data-pin]").count()) === 0,
     "ライブ上でなぞると丸囲みになる（点ではない）",
   );
   await page.waitForSelector("text=これはテストの回答です。", { timeout: 10000 });

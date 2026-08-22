@@ -271,7 +271,7 @@ node scripts/measure-signature-drift.mjs       # 画面署名の実測
 
 | 形態 | 状態 |
 |---|---|
-| **本体**（`/`、1台で完結） | **主経路。**タブ共有ならこのページに留まったままライブで見て質問できる（[solo-mode.md](docs/solo-mode.md)） |
+| **本体**（`/`、1台で完結） | **主経路。**タブ・ウィンドウ・画面全体のいずれもこのページに留まったままライブで見て指せる（[solo-mode.md](docs/solo-mode.md)） |
 | **コンパニオン**（`/` の「スマホ・タブレットで見る」→ QR → `/companion/[roomId]`） | 別モードではなく同じ共有の第二の見口。作業画面を奪わないのが強み（[companion-mode.md](docs/companion-mode.md)） |
 | アンビエント（音声＋VADで常時待機） | 未着手 |
 

@@ -83,13 +83,15 @@ export function messageForCaptureError(kind: CaptureError): string {
 /**
  * Which of the picker's three kinds of thing the user chose.
  *
- * This decides everything downstream, because only a tab can be watched from
- * here without leaving (see `Share.keptFocus`). Unknown means unknown, and the
- * modes fail very differently on a wrong guess: treating a monitor share as a
- * tab puts a live hall of mirrors on screen, while treating a tab as a monitor
- * merely buffers frames it did not need. So an absent value — Firefox and
- * Safari do not always report one — is read as "monitor", the assumption whose
- * failure is survivable.
+ * This decides everything downstream: whether focus can be held here (tab),
+ * whether the page has to be left and returned to (window), and whether the
+ * recent-screens buffer records as the way back from a hall of mirrors
+ * (monitor). Unknown means unknown, and the wrong guess costs differently:
+ * a tab read as "monitor" loses the focus hold and buffers frames it did not
+ * need, while a monitor read as "browser" would show live with neither the
+ * buffer nor the companion quiet view to fall back on. So an absent value —
+ * Firefox and Safari do not always report one — is read as "monitor", the
+ * assumption whose failure is survivable.
  */
 export type DisplaySurface = "monitor" | "window" | "browser";
 

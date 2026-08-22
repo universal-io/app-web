@@ -21,6 +21,17 @@ import type { Capture } from "@/lib/screen-share";
  * percentages at the last moment, so the mark sent and the boxes drawn back go
  * through one conversion. A coordinate fault then shows as a visibly misplaced
  * ring rather than a confident answer about the wrong thing.
+ *
+ * One colour runs through all of it: iris, the same purple as the buttons.
+ * Pointing at something, circling it, and the boxes that come back are three
+ * halves of one sentence — the user says "this" and the answer says "this" —
+ * so they are painted alike. A second hue would have to mean a second thing,
+ * and there is no second thing. Amber survives only where it means caution
+ * (uncertainties, warnings), which is a different sentence entirely.
+ *
+ * The wash and spotlight are deliberately NOT this colour (app/wash.ts): a
+ * translucent sheet over arbitrary screens was tuned by measuring what it does
+ * to dark and light pages, and matching it to a solid accent would undo that.
  */
 
 /** How far a finger travels before a tap becomes a ring. app-ios settled on
@@ -33,8 +44,9 @@ type Props = {
   annotations: Annotation[];
   onPointer: (pointer: Pointer | null, stroke: Point[] | null) => void;
   stroke: Point[] | null;
-  /** While the answer is being read, the mark itself pulses: the first proof
-   * that the tap was heard has to be at the place that was tapped. */
+  /** Whether the answer is still being read. The mark pulses either way — the
+   * first proof that the tap was heard has to be at the place that was tapped
+   * — and while waiting it simply beats quicker. */
   thinking?: boolean;
 };
 
@@ -93,25 +105,30 @@ export function Snapshot({ capture, pointer, annotations, onPointer, stroke, thi
 
         {!drawing && pointer?.kind === "point" && (
           <div
-            className="pointer-events-none absolute h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-cyan"
+            data-pin=""
+            className="io-mark pointer-events-none absolute h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-iris"
             style={{ left: `${pointer.point.x * 100}%`, top: `${pointer.point.y * 100}%` }}
           >
-            {thinking && (
-              <span className="absolute -inset-0.5 animate-ping rounded-full border-2 border-cyan/70 motion-reduce:hidden" />
-            )}
+            {/* The halo carries the pulse rather than the ring itself, so the
+                thing the eye measures the position by never moves. */}
+            <span
+              className={`io-pin-pulse absolute -inset-px rounded-full border-2 border-iris ${
+                thinking ? "io-pin-pulse-fast" : ""
+              }`}
+            />
           </div>
         )}
 
         {annotations.map((annotation) => (
           <div key={annotation.id} className="pointer-events-none absolute" style={boxStyle(annotation.box)}>
-            <div className="h-full w-full rounded-sm border-2 border-amber-400" />
+            <div data-box="" className="io-mark h-full w-full rounded-sm border-2 border-iris" />
             {annotation.label && (
               // The label grows away from the nearer edge. Anchored always to
               // the left it ran off the screen for anything in the right-hand
               // column — which is where toolbars, close buttons and overflow
               // menus live, so it was most of what ever got labelled.
               <span
-                className={`absolute whitespace-nowrap rounded bg-amber-400 px-1.5 py-0.5 text-xs font-medium text-slate-900 ${
+                className={`absolute whitespace-nowrap rounded bg-iris px-1.5 py-0.5 text-xs font-medium text-white ${
                   annotation.box.x + annotation.box.w / 2 > 0.5 ? "right-0" : "left-0"
                 } ${annotation.box.y + annotation.box.h > 0.88 ? "bottom-full mb-1" : "top-full mt-1"}`}
               >
@@ -143,11 +160,15 @@ export function markFrom(points: Point[]): { pointer: Pointer; stroke: Point[] |
 export function Stroke({ points }: { points: Point[] }) {
   if (points.length < 2) return null;
   return (
-    <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
+    <svg
+      viewBox="0 0 1 1"
+      preserveAspectRatio="none"
+      className="io-mark pointer-events-none absolute inset-0 h-full w-full"
+    >
       <polyline
         points={points.map((p) => `${p.x},${p.y}`).join(" ")}
         fill="none"
-        stroke="#37d5f2"
+        stroke="var(--color-iris)"
         strokeLinecap="round"
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"

@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 import { askVision, type Pointer, type VisionSuccess } from "@/lib/gateway";
 import {
   createFrameSource,
+  difference,
   screenShareUnavailableReason,
   startScreenShare,
   type Capture,
@@ -108,8 +109,9 @@ function Home() {
   const [keptFocus, setKeptFocus] = useState(false);
   const [screens, setScreens] = useState<RecentScreen[]>([]);
   const [index, setIndex] = useState(0);
-  /** Window and tab shares have no hall of mirrors, so they need no buffer:
-   * the current frame is always the right one and is simply re-taken. */
+  /** The one held-still picture on display, whichever live surface it came
+   * from: a pointed-at moment of a watched tab or monitor, a re-taken window,
+   * or a buffer candidate picked by hand. Null means the live video is up. */
   const [frozen, setFrozen] = useState<Capture | null>(null);
 
   /**
@@ -134,6 +136,10 @@ function Home() {
   const sendSeq = useRef(0);
   const [videoSize, setVideoSize] = useState<{ w: number; h: number } | null>(null);
   const [report, setReport] = useState<RecentScreensReport | null>(null);
+  /** How much each sampled frame differed from the one before it, newest
+   * first, and whether this tab had focus at the time. `?debug` only — see the
+   * effect that fills it. */
+  const [liveness, setLiveness] = useState<{ drift: number; front: boolean }[]>([]);
   const [debug] = useState(
     () => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug"),
   );
@@ -164,18 +170,39 @@ function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const sourceRef = useRef<FrameSource | null>(null);
   const recorderRef = useRef<RecentScreensHandle | null>(null);
+  /** Whether the tab was actually hidden, as opposed to merely unfocused.
+   * Only a return from hidden may swap the view to a buffered candidate:
+   * clicking back in from another window on the same monitor recorded
+   * nothing, and must not slap an old still over the live picture. */
+  const wasHiddenRef = useRef(false);
 
   /**
-   * Three shares, three different things the page can honestly offer.
+   * Everything is watched live. There are only two reasons not to be.
    *
-   * A tab, with focus held here, can be watched live from this page: the user
-   * never leaves, so there is nothing to remember for them and nothing to come
-   * back to. A window has to be brought to the front to keep redrawing, so it
-   * is watched by going there and returning. A whole monitor contains this very
-   * page, so it can only be seen as it was a moment ago — which is what the
-   * buffer is for, and why it exists only for this one case.
+   * A tab needs focus to have been held here — otherwise the user was taken to
+   * it and has to come back, and what they come back to is a still. And a
+   * monitor share with a companion open must not be live *here*, because the
+   * picture is being watched on the other device and a live view on this screen
+   * would fold a mirror into the very stream that device receives. The words on
+   * this page mean nothing to someone looking at their phone, so this page goes
+   * quiet instead of instructing them.
+   *
+   * A window used to be excluded too, on the grounds that the OS may stop
+   * drawing one that is not in front. **That was measured and it is not what
+   * happens**: an unfocused window kept producing real frame-to-frame change of
+   * 0.03–0.04, where a genuinely stopped source reads exactly 0.000
+   * (docs/capabilities.md §4-B). It had been an assumption for as long as the
+   * product existed, and it cost the one surface people reach for when they
+   * want to ask about a single application.
+   *
+   * A monitor is live for its own reason: the hall of mirrors happens only when
+   * the shared monitor is the one this page sits on, and there it is visible the
+   * moment it happens, so the user can simply pick again. The buffer still
+   * records while this tab is hidden, as the way back to "the screen I was just
+   * looking at" for the single-monitor case.
    */
-  const watched = surface === "browser" && keptFocus;
+  const companionQuiet = surface === "monitor" && (companionOpen || roomId !== null);
+  const watched = surface === "browser" ? keptFocus : !companionQuiet;
   const buffered = surface === "monitor";
 
   // Read in the browser only: the server has no navigator, and deciding there
@@ -183,7 +210,10 @@ function Home() {
   // cannot capture a screen at all.
   const unavailable = mounted ? screenShareUnavailableReason() : null;
 
-  const currentCapture: Capture | null = buffered ? (screens[index]?.capture ?? null) : frozen;
+  /** The held-still picture wins over the buffer: on a live monitor share the
+   * still is the pointed-at moment (or a candidate picked by hand), and the
+   * buffer is only the fallback the quiet companion view reads from. */
+  const currentCapture: Capture | null = frozen ?? (buffered ? (screens[index]?.capture ?? null) : null);
   /** Live is the default for a watched tab; a still only appears once there is
    * something to ask about, and "ライブに戻る" puts it away again. */
   const showingLive = watched && frozen === null;
@@ -349,6 +379,17 @@ function Home() {
     setSurface(share.surface);
     setKeptFocus(share.keptFocus);
     setStream(share.stream);
+    if (share.surface === "monitor") {
+      // Chrome's "sharing this screen" bar is a separate window that takes
+      // focus the moment sharing begins, which drops the spotlight before the
+      // user has moved at all. Asking for focus back is best-effort — the
+      // browser is free to refuse — so the spotlight's own focus handling
+      // stays as the fallback.
+      window.focus();
+      setTimeout(() => {
+        if (!document.hasFocus()) window.focus();
+      }, 400);
+    }
     if (intent === "companion") void openCompanion(share.stream);
   }, [accountReady, session, openCompanion, tAuth, tCap, errorText]);
 
@@ -406,11 +447,15 @@ function Home() {
           setReport(latest);
         },
       });
-    } else if (!watched) {
-      // A window share: take one now, because the user is looking at that
-      // window and not at this page. A watched tab takes none — it is on screen
-      // live, and freezing it before being asked would be answering a question
-      // nobody put.
+    } else if (surface === "browser" && !keptFocus) {
+      // The one surface that arrives already elsewhere: focus could not be held,
+      // so the user is looking at the shared tab and not at this page. Take one
+      // now, because they have nothing to look at here until they come back.
+      // Every other surface is live and takes none — freezing before being asked
+      // would be answering a question nobody put.
+      //
+      // Written against surface/keptFocus rather than `watched`, so opening a
+      // companion mid-share cannot tear the recorder down and lose what it holds.
       void grabNow().then((capture) => capture && setFrozen(capture));
     }
 
@@ -420,7 +465,7 @@ function Home() {
       source.close();
       sourceRef.current = null;
     };
-  }, [stream, buffered, watched, grabNow]);
+  }, [stream, buffered, surface, keptFocus, grabNow]);
 
   /**
    * Coming back to this tab is the whole interaction, so it is treated as one:
@@ -432,11 +477,27 @@ function Home() {
   useEffect(() => {
     if (!stream) return;
     function onReturn() {
-      if (document.hidden) return;
+      if (document.hidden) {
+        wasHiddenRef.current = true;
+        return;
+      }
+      const cameBack = wasHiddenRef.current;
+      wasHiddenRef.current = false;
       if (watched) {
+        if (buffered) {
+          // A live monitor share: coming back from hidden, the screen worth
+          // asking about is the one from a moment before returning, so the
+          // newest candidate is put up ready. Merely regaining focus recorded
+          // nothing and changes nothing. The exchange survives either way —
+          // coming back to re-read an answer is a normal reason to come back.
+          if (cameBack && screens.length > 0) {
+            setIndex(0);
+            setFrozen(screens[0].capture);
+          }
+          return;
+        }
         // They went to the shared tab, did something, and came back — so what
         // they want to see is how it looks now, not the still they left behind.
-        // The exchange survives, because "then what?" is the usual next thing.
         setFrozen(null);
         setMark(null);
         setAnswer(null);
@@ -454,32 +515,65 @@ function Home() {
       document.removeEventListener("visibilitychange", onReturn);
       window.removeEventListener("focus", onReturn);
     };
-  }, [stream, buffered, watched, grabNow]);
+  }, [stream, buffered, watched, screens, grabNow]);
 
   /**
-   * Choosing a different screen by hand means a different subject, so the
-   * exchange goes with it — the same rule as pointing somewhere new. Being
-   * moved to the newest screen on returning to the tab is not that, and keeps
-   * everything: coming back to re-read an answer is a normal reason to come
-   * back (docs/solo-mode.md §5).
+   * Is a window share actually live? Nobody has ever measured it.
+   *
+   * A window is treated as never-live on the grounds that the OS may stop
+   * drawing one that is covered or minimised, so a live view could sit there
+   * showing a stale frame while claiming to be current. That reasoning is
+   * sound and it is also **an assumption written down and never checked** —
+   * docs/capabilities.md §4-B says as much in as many words, which sits badly
+   * next to "測ってから決める".
+   *
+   * This samples the stream once a second and reports how far each frame moved
+   * from the one before.
+   *
+   * 🔴 **A drift of 0.000 on its own proves nothing.** It says the picture did
+   * not change, which is equally what a window nobody touched looks like. The
+   * measurement is only decisive if the shared window is something that changes
+   * *by itself* — a clock, a video, a log — because then "it stopped changing"
+   * can only mean the drawing stopped. Sharing a static window and reading
+   * zeroes measures the window, not the browser.
+   *
+   * Each sample therefore records whether this tab had focus, i.e. whether the
+   * shared window was behind at the time. Zeros while behind, on a source that
+   * is known to be moving, is the reading that settles it.
+   *
+   * `?debug` only. Nothing here runs for a user, and it is deliberately not
+   * wired to any product behaviour: this is an instrument, not a feature.
    */
-  const selectCandidate = useCallback((at: number) => {
-    setIndex(at);
-    setMark(null);
-    setAnswer(null);
-    setTurns([]);
-  }, []);
-
   useEffect(() => {
-    if (!buffered || screens.length < 2) return;
-    function onKey(event: KeyboardEvent) {
-      if (event.target instanceof HTMLInputElement) return;
-      if (event.key === "ArrowLeft") selectCandidate(Math.max(0, index - 1));
-      if (event.key === "ArrowRight") selectCandidate(Math.min(screens.length - 1, index + 1));
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [buffered, screens.length, index, selectCandidate]);
+    if (!debug || !stream || buffered) return;
+    let previous: Uint8ClampedArray | null = null;
+    let stopped = false;
+    const samples: { drift: number; front: boolean }[] = [];
+    const timer = setInterval(() => {
+      const source = sourceRef.current;
+      if (!source) return;
+      // Read before the grab resolves: by the time it does, the user may have
+      // clicked back and the sample would be labelled with the wrong side.
+      const front = document.hasFocus();
+      void source
+        .grab()
+        .then((frame) => {
+          if (stopped) return;
+          if (previous) {
+            samples.unshift({ drift: difference(previous, frame.signature), front });
+            if (samples.length > 12) samples.length = 12;
+            setLiveness([...samples]);
+          }
+          previous = frame.signature;
+        })
+        // One failed grab says nothing either way; the next tick tries again.
+        .catch(() => {});
+    }, 1000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [debug, stream, buffered]);
 
   /**
    * One place where a question is actually sent.
@@ -541,6 +635,44 @@ function Home() {
       if (sendSeq.current === seq) setBusy(false);
     }
   }, [session, tAuth, tAsk, tErr, locale, errorText]);
+
+  /**
+   * Choosing a different screen by hand means a different subject, so the
+   * exchange goes with it — the same rule as pointing somewhere new. Being
+   * moved to the newest screen on returning to the tab is not that, and keeps
+   * everything: coming back to re-read an answer is a normal reason to come
+   * back (docs/solo-mode.md §5).
+   *
+   * And the choice is itself a question. The bubble asks "was it this one?",
+   * so answering it with a picture and nothing else reads as a control that
+   * did not work — which is exactly how it read: tapping a screen appeared to
+   * do nothing at all. What is asked is the most general thing there is, since
+   * the user has said which screen and not yet which part of it.
+   */
+  const selectCandidate = useCallback((at: number) => {
+    const capture = screens[at]?.capture ?? null;
+    setIndex(at);
+    // On a live monitor share the live picture is the default, so viewing a
+    // candidate means holding it still; Esc or the margin puts it away again.
+    setFrozen(capture);
+    setMark(null);
+    setAnswer(null);
+    setTurns([]);
+    if (capture) {
+      void send({ capture, pointer: null, stroke: null, question: tAsk("explainScreen"), history: [] });
+    }
+  }, [screens, send, tAsk]);
+
+  useEffect(() => {
+    if (!buffered || screens.length < 2) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.target instanceof HTMLInputElement) return;
+      if (event.key === "ArrowLeft") selectCandidate(Math.max(0, index - 1));
+      if (event.key === "ArrowRight") selectCandidate(Math.min(screens.length - 1, index + 1));
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [buffered, screens.length, index, selectCandidate]);
 
   /**
    * Pointing somewhere new starts a new subject, so the previous exchange is
@@ -617,6 +749,77 @@ function Home() {
   }, [watched]);
 
   const exchangeOpen = pointer !== null || answer !== null || busy || asked !== null;
+
+  /**
+   * Whether the corner button has somewhere to go back to.
+   *
+   * There is one button in that corner and it always means "back one step",
+   * but the step it undoes decides what it must look like. While an
+   * explanation is up, back is the picture that was being looked at before —
+   * the moving one on a live surface, or simply the picture without the bubble
+   * on it. With nothing left to undo, back is out of the app altogether.
+   *
+   * It was a ✕ in both cases, and the ✕ people actually meant was the first
+   * one: they pressed it to get out of the explanation and it ended the share.
+   * So the ✕ now only appears where it does that, and the way out wears a
+   * house — the one irreversible thing here should look like leaving.
+   */
+  const backable = exchangeOpen || (watched && frozen !== null);
+
+  /**
+   * What the page has to say for itself, said from the bubble.
+   *
+   * Every mode has something the user needs told — what is on screen, why it
+   * looks like that, what to do next — and there is exactly one place that
+   * talks. Whole-monitor sharing is the case that most needs it: the picture
+   * may well be this very page, and somebody who has never met a hall of
+   * mirrors cannot be expected to work out that the way through is to go
+   * somewhere else and come back.
+   *
+   * It cannot be known whether the shared monitor is the one this page sits on
+   * (docs/capabilities.md §4-B), so the sentence is conditional rather than a
+   * claim: a second-monitor user reads "if what you see is this page" and
+   * moves on.
+   */
+  const say = ((): { title: string; lead: string } | null => {
+    if (buffered) {
+      // Two different situations, and the second one badly needs saying.
+      //
+      // Before any screens are kept, the user is looking at a live monitor —
+      // possibly at this very page — and needs to know the way through is to go
+      // somewhere else and come back.
+      //
+      // Afterwards they are looking at something that is *not* live and never
+      // said so: a frame kept while they were away. Having chosen to watch
+      // their own screen, live can only ever show them themselves, so the
+      // buffer is a rescue — and a rescue nobody explained just looks like the
+      // picture having quietly stopped following along.
+      return screens.length > 0
+        ? { title: t("shotTitle"), lead: t("shotLead") }
+        : { title: t("wholeScreenTitle"), lead: t("wholeScreenLead") };
+    }
+    // A window share is live like the rest now, so it needs no special
+    // explanation of what it is — only a pointer at the remedy if the picture
+    // ever does look old. Deliberately no claim about *why* it might: whether a
+    // fully covered window stops being drawn is still unmeasured, and asserting
+    // an unmeasured thing is what put this surface on a still for months.
+    if (surface === "window") return { title: t("windowTitle"), lead: t("windowLead") };
+    return { title: t("inviteTitle"), lead: t("inviteLead") };
+  })();
+
+  /** The buffer, asked as the question it has always been: was it this one?
+   * It used to be a strip of thumbnails in the far corner, labelled like a
+   * toolbar; the corner is where things go to be ignored, and a toolbar does
+   * not tell you what it is for. */
+  const offer =
+    buffered && screens.length > 0
+      ? {
+          prompt: t("offerPrompt"),
+          screens: screens.map((screen) => ({ id: screen.id, src: screen.capture.dataURL })),
+          index,
+          onPick: selectCandidate,
+        }
+      : null;
 
   useEffect(() => {
     if (!exchangeOpen) return;
@@ -765,11 +968,18 @@ function Home() {
     const size = { w: element.offsetWidth, h: element.offsetHeight };
     const box = boxRef.current?.getBoundingClientRect();
     if (!pointer || !box) {
-      // Nothing pointed at, so nothing to sit beside: the bubble waits along
-      // the bottom, where a question with no place on the picture belongs.
+      // Nothing pointed at, so nothing to sit beside: the bubble waits in the
+      // bottom-right corner, where a notice with no place on the picture
+      // belongs and where nothing else is.
+      //
+      // Not bottom-centre, which is where it used to wait: the browser's own
+      // "you are sharing your screen" bar is an OS-level window floating
+      // exactly there, and it covered the question box and its send button
+      // outright. That bar cannot be moved or measured from a page — it is not
+      // in the document — so the only remedy is to not put anything under it.
       write(element, {
-        left: (window.innerWidth - size.w) / 2,
-        top: window.innerHeight - size.h - 16,
+        left: window.innerWidth - size.w - 24,
+        top: window.innerHeight - size.h - 24,
       });
       return;
     }
@@ -795,6 +1005,22 @@ function Home() {
     }));
     write(element, placeBeside(target, size, drawn, { w: window.innerWidth, h: window.innerHeight }));
   }, [pointer, annotations]);
+
+  /**
+   * Placed the moment the node attaches, not only when something changes.
+   *
+   * The layout effect below fires when `placeBubble` changes identity, and on a
+   * watched tab nothing it depends on differs between "no bubble on the page"
+   * and "bubble on the page": `pointer` is null either way and `annotations`
+   * memoizes to the same empty array. So the effect ran once against a null
+   * ref, the node arrived afterwards, and the bubble was never positioned at
+   * all — it sat at 0,0 still carrying the `visibility: hidden` it mounts with,
+   * which is to say the question box was simply not there.
+   */
+  const attachBubble = useCallback((node: HTMLDivElement | null) => {
+    bubbleRef.current = node;
+    if (node) placeBubble();
+  }, [placeBubble]);
 
   // Before paint on every new mark, and again whenever the bubble changes size
   // (the answer landing) or the window does. The node mounts hidden, so it
@@ -948,7 +1174,16 @@ function Home() {
 
   return (
     <div className="fixed inset-0 flex flex-col bg-ink text-white">
-      {debug && <DebugPanel screens={screens} report={report} index={index} buffered={buffered} watched={watched} />}
+      {debug && (
+        <DebugPanel
+          screens={screens}
+          report={report}
+          index={index}
+          buffered={buffered}
+          watched={watched}
+          liveness={liveness}
+        />
+      )}
 
       {companionOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
@@ -1009,7 +1244,62 @@ function Home() {
         {/* Two small icons in the corner rather than a bar of labelled buttons.
             The bar cost a strip of the picture for controls nobody reaches for:
             the usual way to finish here is to close the tab. */}
-        <div className="absolute right-2 top-2 z-20 flex gap-1">
+        <div className="absolute right-2 top-2 z-20 flex items-center gap-1">
+          {/* Which of the two things you are looking at, said out loud.
+              A held-still picture and a moving one are indistinguishable when
+              nothing on the shared screen happens to be moving, and the mistake
+              that follows is specific: the user carries on working, expects the
+              picture to follow, and reads "nothing happens" as a broken app.
+              This was first shown only while live, on the theory that its
+              absence marked the still — but an absence is not a label, and the
+              structure stayed unreadable even to us. So both states are named,
+              and the pair is what makes either legible. It sits at the near end
+              of the tool group because it is a state, not a control. */}
+          <span
+            data-mode={showingLive ? "live" : "guide"}
+            // The bubble's own material, not the tool buttons' bg-black/40:
+            // this badge is the copilot speaking, and a 40%-black pill takes
+            // its contrast from whatever screen happens to be underneath —
+            // measured on a white page, the iris bolt on it came out at about
+            // 2.4:1 and read as a smudge.
+            className="mr-1 flex select-none items-center gap-1.5 rounded-full bg-carbon/90 px-2.5 py-1 text-[11px] font-medium text-white/85 backdrop-blur"
+          >
+            {showingLive ? (
+              <svg
+                viewBox="0 0 24 24"
+                // Green, not iris. In the app's own accent the bolt read as
+                // one more piece of chrome — an indicator the same colour as
+                // every button looks switched off. Green is already what
+                // "connected, right now" means here (CompanionState), so this
+                // borrows a meaning rather than inventing one.
+                className="h-3.5 w-3.5 animate-pulse text-green-400 motion-reduce:animate-none"
+                fill="currentColor"
+                aria-hidden
+              >
+                <path d="M13 2 4.5 13.2a.6.6 0 0 0 .48.96H10l-1 8 8.5-11.2a.6.6 0 0 0-.48-.96H12z" />
+              </svg>
+            ) : (
+              // A page being looked at closely. Deliberately not green and not
+              // iris: this state is neither live nor an action, and borrowing
+              // either colour would say something untrue about it.
+              <svg
+                viewBox="0 0 24 24"
+                className="h-3.5 w-3.5 text-white/70"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.8}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M13.5 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h4" />
+                <path d="M13.5 3 18 7.5V10" />
+                <circle cx="16.5" cy="16.5" r="3.2" />
+                <path d="m19 19 2.2 2.2" />
+              </svg>
+            )}
+            {showingLive ? t("liveBadge") : t("guideBadge")}
+          </span>
           <button
             onClick={refresh}
             title={t("retake")}
@@ -1038,15 +1328,26 @@ function Home() {
               <path d="M21 14v.01M14 21v.01M21 21v.01M18.5 18.5v.01" />
             </svg>
           </button>
+          {/* Back one step — see `backable`. The label says where, because the
+              two destinations are not equally undoable and a tooltip is the
+              cheapest place to say so before the press rather than after. */}
           <button
-            onClick={stop}
-            title={t("stopSharing")}
-            aria-label={t("stopSharing")}
+            onClick={backable ? close : stop}
+            title={backable ? (watched ? t("backToLive") : t("closeExplanation")) : t("goHome")}
+            aria-label={backable ? (watched ? t("backToLive") : t("closeExplanation")) : t("goHome")}
             className="rounded-full bg-black/40 p-2 text-white backdrop-blur transition hover:bg-black/60"
           >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
+            {backable ? (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 10.5 12 3l9 7.5" />
+                <path d="M5.5 9.5V20a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V9.5" />
+                <path d="M9.5 21v-6h5v6" />
+              </svg>
+            )}
           </button>
         </div>
 
@@ -1114,43 +1415,32 @@ function Home() {
             }}
           />
         )}
-      </div>
+
       </div>
 
-      {!showingLive && !currentCapture && (
-        <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 px-6 text-center">
-          {buffered ? (
-            <>
-              {/* The only thing this mode ever teaches, and it is shown once:
-                  after the first return there is always a screen here. */}
-              <p className="text-lg font-medium">{t("goBackTitle")}</p>
-              <p className="mx-auto max-w-md text-sm leading-relaxed text-white/60">
-                {t("goBackLead")}
-              </p>
-            </>
-          ) : (
-            <p className="text-sm text-white/60">{t("loadingShared")}</p>
-          )}
+      {/* A monitor share being watched on the other device. A live picture
+          here would fold a mirror into the very stream that device receives,
+          and any instruction written here is read by nobody — the user is
+          looking at their phone. So this side says only what is true, and
+          offers the one action that belongs to it. */}
+      {companionQuiet && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-ink px-6 text-center">
+          <p className="text-lg font-medium">
+            {peerState === "connected" ? tc("watchingThere") : tc("waitingThere")}
+          </p>
+          <button
+            onClick={stopCompanion}
+            className="rounded-lg border border-white/20 px-4 py-2 text-sm text-white/80 transition hover:border-white/40"
+          >
+            {tc("watchHere")}
+          </button>
         </div>
       )}
+      </div>
 
-      {buffered && screens.length > 1 && (
-        <div className="fixed bottom-4 left-4 z-30 max-w-[min(28rem,calc(50vw-12rem))] space-y-1 rounded-xl bg-carbon/80 p-2 text-white backdrop-blur">
-          <p className="text-[11px] text-white/40">{t("candidates")}</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {screens.map((screen, at) => (
-              <button
-                key={screen.id}
-                onClick={() => selectCandidate(at)}
-                className={`shrink-0 overflow-hidden rounded border-2 ${
-                  at === index ? "border-iris" : "border-transparent opacity-60"
-                }`}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={screen.capture.dataURL} alt="" className="h-12 w-20 object-cover" draggable={false} />
-              </button>
-            ))}
-          </div>
+      {!showingLive && !currentCapture && !buffered && (
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 px-6 text-center">
+          <p className="text-sm text-white/60">{t("loadingShared")}</p>
         </div>
       )}
 
@@ -1161,8 +1451,9 @@ function Home() {
           answers. When nothing has been pointed at, the same bubble waits at
           the bottom centre as just its input box — a typed question with no
           mark belongs to no particular spot on the picture (§3). */}
+      {!companionQuiet && (
       <div
-        ref={bubbleRef}
+        ref={attachBubble}
         className="fixed z-30"
         style={{ left: 0, top: 0, visibility: "hidden" }}
       >
@@ -1177,8 +1468,11 @@ function Home() {
           onSubmit={showingLive ? askAboutLive : ask}
           onClose={close}
           grip={{ onGrab, onGrabMove, onGrabEnd }}
+          say={say}
+          offer={offer}
         />
       </div>
+      )}
     </div>
   );
 }
@@ -1214,12 +1508,17 @@ function DebugPanel({
   index,
   buffered,
   watched,
+  liveness,
 }: {
   screens: RecentScreen[];
   report: RecentScreensReport | null;
   index: number;
   buffered: boolean;
   watched: boolean;
+  /** Frame-to-frame drift, newest first, tagged 表/裏 by whether this tab had
+   * focus. Only decisive on a window that changes by itself
+   * (docs/capabilities.md §4-B). */
+  liveness: { drift: number; front: boolean }[];
 }) {
   const gaps = report?.intervals ?? [];
   const route = report === null ? "未取得" : report.viaTrack ? "track (ImageCapture)" : "video element";
@@ -1227,18 +1526,29 @@ function DebugPanel({
     // Saying "0 candidates" here would read as a buffer that found nothing,
     // when in fact these shares never needed one.
     return (
-      <div className="shrink-0 border-y border-white/10 bg-black/60 px-3 py-1 font-mono text-[10px] leading-tight text-white/60">
-        {watched
-          ? "タブ共有・フォーカス保持あり（ライブ表示、バッファなし）"
-          : "ウィンドウ共有（戻るたびに撮り直し、バッファなし）"}{" "}
-        / 取得元 {route}
+      <div className="shrink-0 space-y-0.5 border-y border-white/10 bg-black/60 px-3 py-1 font-mono text-[10px] leading-tight text-white/60">
+        <div>
+          {watched
+            ? "ライブ表示・バッファなし（タブ保持 or ウィンドウ）"
+            : "タブ共有・フォーカス保持なし（戻るたびに撮り直し）"}{" "}
+          / 取得元 {route}
+        </div>
+        {/* 裏 = this tab had focus, so the shared window was behind. Zeros
+            only mean something on a window that moves by itself. */}
+        <div>
+          動き(1秒ごとの差・裏=共有窓が背面):{" "}
+          {liveness.length
+            ? liveness.map((at) => `${at.drift.toFixed(3)}${at.front ? "裏" : "表"}`).join(" ")
+            : "—"}
+        </div>
       </div>
     );
   }
   return (
     <div className="shrink-0 space-y-0.5 border-y border-white/10 bg-black/60 px-3 py-1 font-mono text-[10px] leading-tight text-white/60">
       <div>
-        候補 {screens.length} / 選択 {index} / 取得元 {route}
+        候補 {screens.length} / 選択 {index} / 取得元 {route} / 表示{" "}
+        {watched ? "ライブ" : "コンパニオン先"}
       </div>
       <div>直近の取得間隔(ms): {gaps.length ? gaps.join(" ") : "—"}</div>
       <div>
