@@ -53,6 +53,7 @@
 | [docs/solo-mode.md](docs/solo-mode.md) | 画面を読む本体（`/`・1台で完結）の現在の設計。**主経路** |
 | [docs/pointing.md](docs/pointing.md) | **指した場所の隣に答えが出る形の要件と規則。実装済み** — バブルに触るならここが正本 |
 | [docs/companion-mode.md](docs/companion-mode.md) | コンパニオン（スマホ・タブレットで見る）の設計と、公開前に必ず戻ること |
+| [docs/auto-copilot.md](docs/auto-copilot.md) | **自動コパイロット（伴走モード）の構想。未着手** — 着手前に必ずここから。最初の一歩は実装ではなく計測 |
 | [docs/auth.md](docs/auth.md) | 認証とアカウント。**本家と同一のSupabaseプロジェクト**である理由と、外部設定 |
 | [docs/log.md](docs/log.md) | 時系列の記録。**間違えた記録**が主な価値。普段は読まない |
 
