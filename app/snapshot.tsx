@@ -48,13 +48,32 @@ type Props = {
    * first proof that the tap was heard has to be at the place that was tapped
    * — and while waiting it simply beats quicker. */
   thinking?: boolean;
+  /** The parent owns two-finger zoom/pan. One finger remains this component's
+   * pointing gesture, while a second finger cancels the pending mark. */
+  managedPinch?: boolean;
+  /** Draw accepts a one-finger stroke. Tap leaves one-finger movement to a
+   * parent canvas and emits only a stationary tap as a point. */
+  interactionMode?: "draw" | "tap";
 };
 
 export type Point = { x: number; y: number };
 
-export function Snapshot({ capture, pointer, annotations, onPointer, stroke, thinking = false }: Props) {
+export function Snapshot({
+  capture,
+  pointer,
+  annotations,
+  onPointer,
+  stroke,
+  thinking = false,
+  managedPinch = false,
+  interactionMode = "draw",
+}: Props) {
   const t = useTranslations("app");
   const containerRef = useRef<HTMLDivElement>(null);
+  const activePointers = useRef(new Set<number>());
+  const pinching = useRef(false);
+  const tapStart = useRef<Point | null>(null);
+  const tapMoved = useRef(false);
   const [drawing, setDrawing] = useState<Point[] | null>(null);
 
   function positionOf(event: React.PointerEvent): Point {
@@ -66,25 +85,65 @@ export function Snapshot({ capture, pointer, annotations, onPointer, stroke, thi
   }
 
   function onPointerDown(event: React.PointerEvent) {
-    // Two fingers is the browser pinching to zoom, not somebody drawing.
+    if (managedPinch) {
+      activePointers.current.add(event.pointerId);
+      if (activePointers.current.size > 1) {
+        pinching.current = true;
+        setDrawing(null);
+        return;
+      }
+    }
+    // Two fingers are zooming, not drawing.
     if (!event.isPrimary) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    tapStart.current = { x: event.clientX, y: event.clientY };
+    tapMoved.current = false;
     setDrawing([positionOf(event)]);
   }
 
   function onPointerMove(event: React.PointerEvent) {
-    if (!drawing || !event.isPrimary) return;
+    if (pinching.current || !drawing || !event.isPrimary) return;
+    if (interactionMode === "tap") {
+      const start = tapStart.current;
+      if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) {
+        tapMoved.current = true;
+      }
+      return;
+    }
     setDrawing([...drawing, positionOf(event)]);
   }
 
-  function onPointerUp() {
+  function onPointerUp(event: React.PointerEvent) {
+    if (managedPinch) activePointers.current.delete(event.pointerId);
+    if (pinching.current) {
+      setDrawing(null);
+      if (activePointers.current.size === 0) pinching.current = false;
+      return;
+    }
     if (!drawing || drawing.length === 0) return;
+    if (interactionMode === "tap") {
+      if (!tapMoved.current) {
+        onPointer({ kind: "point", point: drawing[0] }, null);
+      }
+      tapStart.current = null;
+      tapMoved.current = false;
+      setDrawing(null);
+      return;
+    }
     const mark = markFrom(drawing);
     onPointer(mark.pointer, mark.stroke);
     setDrawing(null);
   }
 
-  const live = drawing ?? stroke;
+  function onPointerCancel(event: React.PointerEvent) {
+    if (managedPinch) activePointers.current.delete(event.pointerId);
+    if (activePointers.current.size === 0) pinching.current = false;
+    tapStart.current = null;
+    tapMoved.current = false;
+    setDrawing(null);
+  }
+
+  const live = interactionMode === "draw" ? drawing ?? stroke : stroke;
 
   return (
     <section>
@@ -93,9 +152,9 @@ export function Snapshot({ capture, pointer, annotations, onPointer, stroke, thi
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={() => setDrawing(null)}
+        onPointerCancel={onPointerCancel}
         className="relative select-none overflow-hidden rounded-xl"
-        style={{ touchAction: "pinch-zoom" }}
+        style={{ touchAction: managedPinch ? "none" : "pinch-zoom" }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={capture.dataURL} alt={t("sharedScreenAlt")} className="block w-full" draggable={false} />

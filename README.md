@@ -256,7 +256,7 @@ macOSでは 5000・7000 を AirPlay Receiver が使い、49152以降はOSが外�
 ```bash
 npm run dev                                    # 別ターミナルで
 npm i --no-save playwright
-node scripts/check-solo-buffer.mjs             # ソロモード3経路の通し検証（24項目）
+node scripts/check-solo-buffer.mjs             # ソロモード4経路の通し検証
 node scripts/measure-signature-drift.mjs       # 画面署名の実測
 ```
 
@@ -296,7 +296,7 @@ node scripts/measure-signature-drift.mjs       # 画面署名の実測
 - **AIプロバイダのAPIキーをクライアントに置かない。** モデル呼び出しは必ず自前サーバー経由
 - **モデルを知るのはサーバーの1ファイルだけ**
 - **どの操作も無音で終わらない** — 有限時間で結果か、原因を述べるエラーに到達する（app-mac R11）
-- **ユーザーの明示操作（指差し・丸囲み・質問）が回答スコープを決める。** 周辺情報に上書き権限はない
+- **ユーザーの明示操作（指差し・丸囲み・質問）が回答スコープを決める。** 周辺情報に上書き権限はない。web版では**画面共有の開始もこの明示操作に数え**、開始直後にシステムが初回説明を1回だけ送る（[docs/solo-mode.md](docs/solo-mode.md) §1）
 - **注入している知識（パック/Skill）は必ずUIに表示する。** 見えない知識は疑うことも直すこともできない
 - **画面画像・回答は保存しない**。usageには運用情報だけ
 - **測ってから決める**

@@ -26,7 +26,7 @@ function check(ok, label, detail = "") {
   console.log(`${ok ? "✓" : "✗"} ${label}${detail ? ` (${detail})` : ""}`);
 }
 
-const stub = ({ surface, holdsFocus }) => {
+const stub = ({ surface, holdsFocus, barSteals }) => {
   const canvas = document.createElement("canvas");
   canvas.width = 1280;
   canvas.height = 800;
@@ -44,6 +44,16 @@ const stub = ({ surface, holdsFocus }) => {
       for (let row = 0; row < 12; row += 1) context.fillRect(30, 60 + row * 55 - scroll, 190, 18);
       context.fillStyle = "#1a73e8";
       context.fillRect(340, 90 - scroll, 700, 360);
+    } else if (kind === "mirror") {
+      // This very page seen through its own share: the dark stage with the
+      // shared picture inside it. Distinct from both "applications" above the
+      // way the real mirror is distinct from any page worth asking about.
+      context.fillStyle = "#101014";
+      context.fillRect(0, 0, 1280, 800);
+      context.fillStyle = "#2a2a35";
+      context.fillRect(120, 80, 1040, 620);
+      context.fillStyle = "#8a7cf0";
+      context.fillRect(980, 640, 180, 40);
     } else {
       context.fillStyle = "#202124";
       context.fillRect(0, 0, 1280, 64);
@@ -53,11 +63,58 @@ const stub = ({ surface, holdsFocus }) => {
   };
   window.__paint("sidebar");
 
+  /**
+   * A shared screen that this page is actually on.
+   *
+   * The canvas is an independent picture, so by default it can never show what
+   * the page does — which means the self-share probe (lib/self-share.ts) has
+   * nothing to find, and every check here would be of the "not a self share"
+   * branch. Turned on, the canvas repaints with the page's own pulse laid over
+   * it, which is what a monitor containing this page would do.
+   *
+   * `__setDrifting` is the case a single "did it change?" test cannot tell
+   * from the real thing: a shared screen with something playing on it, always
+   * changing, never because of us.
+   */
+  let mirroring = false;
+  let drifting = false;
+  let lastKind = "sidebar";
+  let lastScroll = 0;
+  window.__setMirroring = (value) => { mirroring = value; };
+  window.__setDrifting = (value) => { drifting = value; };
+
+  const paint = window.__paint;
+  window.__paint = (kind, scroll = 0) => {
+    lastKind = kind;
+    lastScroll = scroll;
+    paint(kind, scroll);
+  };
+
+  // Only ticks when something needs it, so the checks that paint once and
+  // measure keep seeing exactly what they painted.
+  setInterval(() => {
+    if (!mirroring && !drifting) return;
+    paint(lastKind, lastScroll + (drifting ? Math.floor(Date.now() / 60) % 240 : 0));
+    if (mirroring && document.querySelector("[data-pulse]")) {
+      context.fillStyle = "rgba(74,80,255,0.34)";
+      context.fillRect(0, 0, 1280, 800);
+    }
+  }, 80);
+
   const stream = canvas.captureStream(10);
   const [track] = stream.getVideoTracks();
   const settings = track.getSettings.bind(track);
   track.getSettings = () => ({ ...settings(), displaySurface: surface });
-  navigator.mediaDevices.getDisplayMedia = async () => stream;
+  navigator.mediaDevices.getDisplayMedia = async () => {
+    // Chrome's own "sharing your screen" bar is a separate window that takes
+    // focus the moment sharing begins, and this page cannot take it back
+    // (log.md). Without modelling that, every check here begins a share with
+    // the page focused — which is the one state the real product never starts
+    // in, and it hid a buffer that recorded a hall of mirrors before the user
+    // had gone anywhere.
+    if (barSteals) queueMicrotask(() => window.__setAway(true, "app"));
+    return stream;
+  };
 
   // setFocusBehavior only works on a controller the browser itself handed to a
   // real getDisplayMedia call, so a stand-in stands in for it. What is being
@@ -71,15 +128,30 @@ const stub = ({ surface, holdsFocus }) => {
     delete window.CaptureController;
   }
 
-  let away = false;
-  Object.defineProperty(document, "hidden", { configurable: true, get: () => away });
+  /**
+   * Leaving, in the two ways it actually happens — and they are not the same.
+   *
+   * `hidden` goes true only for another *tab* (or a minimised window). Going
+   * to another **application** leaves this tab visible and merely unfocused,
+   * and that is how somebody goes to look at the screen they want explained.
+   * For a long time this stub moved both together, so "hidden" was the only
+   * departure any check could describe, and a recorder that had stopped
+   * listening for focus kept every check green while doing nothing on real
+   * hardware (log.md 2026-08-23). Now the two are separate and both are used.
+   */
+  let hiddenNow = false;
+  let focusNow = true;
+  Object.defineProperty(document, "hidden", { configurable: true, get: () => hiddenNow });
   Object.defineProperty(document, "visibilityState", {
     configurable: true,
-    get: () => (away ? "hidden" : "visible"),
+    get: () => (hiddenNow ? "hidden" : "visible"),
   });
-  document.hasFocus = () => !away;
-  window.__setAway = (value) => {
-    away = value;
+  document.hasFocus = () => focusNow;
+  // `how` is "tab" (this tab goes to the back — `hidden`) or "app" (another
+  // application comes to the front — visible, unfocused).
+  window.__setAway = (value, how = "tab") => {
+    hiddenNow = value && how === "tab";
+    focusNow = !value;
     document.dispatchEvent(new Event("visibilitychange"));
     window.dispatchEvent(new Event(value ? "blur" : "focus"));
   };
@@ -149,6 +221,10 @@ async function stubGateway(page) {
   await page.route("**/ai/vision", async (route) => {
     const body = route.request().postDataJSON();
     sent.push(body);
+    // No question and no pointer is the contract's "initial observation" —
+    // the one call the system makes by itself when a share begins. Answered
+    // with different words so the checks can tell it from an answer.
+    const isIntro = !body?.input?.question && !body?.input?.pointer;
     // A beat of latency, so the "reading…" state exists long enough to be
     // seen — the real Gateway takes seconds, and instant answers would leave
     // the waiting UI untested.
@@ -161,12 +237,14 @@ async function stubGateway(page) {
         request_id: "test",
         capture_id: "test",
         result: {
-          mode: "answer",
-          message: "これはテストの回答です。",
+          mode: isIntro ? "observation" : "answer",
+          message: isIntro ? "これはテストの初回説明です。" : "これはテストの回答です。",
           observations: [],
           uncertainties: [],
           target_candidate_id: null,
-          annotations: [{ id: "a", kind: "highlight", box: { x: 0.3, y: 0.3, w: 0.2, h: 0.1 }, label: "ここ" }],
+          annotations: body?.input?.wants_annotations
+            ? [{ id: "a", kind: "highlight", box: { x: 0.3, y: 0.3, w: 0.2, h: 0.1 }, label: "ここ" }]
+            : [],
           skill: null,
         },
         meta: { latency_ms: 1200 },
@@ -175,7 +253,7 @@ async function stubGateway(page) {
   });
 }
 
-async function open(surface, holdsFocus = false) {
+async function open(surface, holdsFocus = false, barSteals = false, mirroring = false) {
   const page = await context.newPage();
   page.on("pageerror", (error) => console.log("PAGE ERROR:", error.message));
   await page.addInitScript(
@@ -185,7 +263,13 @@ async function open(surface, holdsFocus = false) {
   if (process.env.TRACE) page.on("console", (m) => console.log("  console:", m.text()));
   if (process.env.TRACE) page.on("requestfailed", (r) => console.log("  reqfail:", r.url(), r.failure()?.errorText));
   await stubGateway(page);
-  await page.addInitScript(stub, { surface, holdsFocus });
+  await page.addInitScript(stub, { surface, holdsFocus, barSteals });
+  if (mirroring) await page.addInitScript(() => {
+    // Before any of the page's own script: the probe runs within a second of
+    // the share starting, so this cannot be switched on afterwards.
+    const on = () => (window.__setMirroring ? window.__setMirroring(true) : setTimeout(on, 10));
+    on();
+  });
   await page.goto(`${BASE}/?debug`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "画面を選ぶ" }).click();
   return page;
@@ -240,22 +324,54 @@ console.log("\n[画面全体を共有]");
     (await page.locator("text=分からない画面に戻ってください").count()) === 0,
     "「戻ってください」は存在しない",
   );
-  check((await page.locator("div[data-guide]").count()) === 1, "指す前はカバーとスポットライトが出ている");
   check((await panel(page)).includes("表示 ライブ"), "デバッグパネルがライブ表示を報告する");
 
-  // Whole-monitor sharing is the one case that cannot explain itself: the
-  // picture may well be this page, and nobody works out on their own that the
-  // way through is to go elsewhere and come back. The bubble says so — and
-  // says it conditionally, because which monitor was shared is not knowable
-  // (capabilities.md §4-B).
+  /**
+   * The veil has to be there before the words.
+   *
+   * It was not: `guiding` turned off for any `busy`, so a share opened on a
+   * bare picture and the wash arrived together with the answer — announcing
+   * "this is a picture to read" after the reading had finished. During the
+   * first look the whole picture is what is being read, so the band sweeps and
+   * the spotlight stays away; the light appears when the scan ends, which is
+   * also when pointing becomes the useful thing to do.
+   */
+  await page.waitForSelector("[data-scan]", { timeout: 4000 });
+  check((await page.locator("div[data-guide]").count()) === 1, "初回説明を待つ間、覆いが先に出ている");
+  check(
+    await page
+      .locator("div[data-guide]")
+      .evaluate((el) => !(el.style.maskImage || el.style.webkitMaskImage).includes("radial-gradient")),
+    "スキャン中はスポットライトを出さない（全体を読んでいる）",
+  );
+
+  // The system's first look: one call made by itself when the share begins,
+  // with no question and no pointer — the contract's "initial observation".
+  // Its words become the bubble's lead while the page stays live. The fixed
+  // copy that taught "go to the screen and come back" is gone: the model can
+  // see what was actually shared, and says the right thing for it — including
+  // the way out of a hall of mirrors (docs/solo-mode.md §3).
+  await page.locator("[data-bubble]").getByText("これはテストの初回説明です。").waitFor({ timeout: 8000 });
+  check(true, "共有開始と同時に、初回説明がバブルに出る");
   check(
     await page.locator("[data-bubble]").getByText("画面全体を共有しています").isVisible(),
-    "画面全体のときは、コンパニオンがその状況を説明する",
+    "初回説明の上で、いま何を共有しているかを名乗る",
   );
   check(
-    await page.locator("[data-bubble]").getByText("解説してほしい画面へ一度行き").isVisible(),
-    "「行って戻る」という次の一手まで言う",
+    (await page.locator("text=解説してほしい画面へ一度行き").count()) === 0,
+    "「行って戻る」という裏技の案内はもう言わない",
   );
+  check(
+    sent.length === 1 &&
+      !sent[0]?.input?.question &&
+      !sent[0]?.input?.pointer &&
+      sent[0]?.input?.wants_annotations === false,
+    "初回説明は1回だけ・質問も指差しも枠の要求も無し",
+    `送信 ${sent.length} 件`,
+  );
+  check((await page.locator('[data-mode="live"]').count()) === 1, "初回説明が出てもライブのまま");
+  check((await page.locator("div[data-guide]").count()) === 1, "指す前はカバーとスポットライトが出ている");
+  check((await page.locator("[data-scan]").count()) === 0, "初回説明が返ったらスキャンの帯は消える");
 
   // Pointing at the live picture freezes that moment and asks about it — the
   // same gesture as a watched tab. This is the dual-monitor case: the shared
@@ -282,7 +398,13 @@ console.log("\n[画面全体を共有]");
   check((await strip(page)) === 0, "一瞬離れただけでは何も残らない");
   check((await page.locator('img[alt="共有された画面"]').count()) === 0, "戻ってもライブのまま");
 
+  // The share shows this page at the moment they turn away — that frame is the
+  // calibration, held rather than kept, so that the switching animation cannot
+  // put a picture of the copilot into the list of screens to ask it about.
+  await page.evaluate(() => window.__paint("mirror"));
+  await page.waitForTimeout(300);
   await page.evaluate(() => window.__setAway(true));
+  await page.waitForTimeout(700);
   await page.evaluate(() => window.__paint("sidebar"));
   await page.waitForTimeout(2400);
   await page.evaluate(() => window.__paint("rows"));
@@ -294,8 +416,14 @@ console.log("\n[画面全体を共有]");
   await page.waitForTimeout(2400);
   await page.evaluate(() => window.__paint("rows", 110));
   await page.waitForTimeout(2400);
-  await page.evaluate(() => window.__setAway(false));
-  await page.waitForTimeout(500);
+  // Coming back makes the shared monitor show this page again — the mirror.
+  // Painted in the same breath as the return, so the recorder cannot keep a
+  // frame of it: what decides the still is live-after-return, not the buffer.
+  await page.evaluate(() => {
+    window.__paint("mirror");
+    window.__setAway(false);
+  });
+  await page.waitForTimeout(900);
 
   console.log("  " + (await panel(page)).replace(/\n/g, " | "));
   check((await strip(page)) === 2, "似た配色でも別アプリは別候補になり、スクロールでは増えない", `候補=${await strip(page)}`);
@@ -325,7 +453,7 @@ console.log("\n[画面全体を共有]");
     "コンパニオンが「これはスクリーンショットです」と言う",
   );
   check(
-    await page.locator("[data-bubble]").getByText("ライブにこのページ自身が映ることがある").isVisible(),
+    await page.locator("[data-bubble]").getByText("このページ自身が映ることがある").isVisible(),
     "なぜ静止画なのか（合わせ鏡）まで言う",
   );
   check(
@@ -370,16 +498,64 @@ console.log("\n[画面全体を共有]");
     "説明されているのは、タップした画面そのもの",
   );
 
-  // Returning must jump back to the newest screen without being asked.
+  // Returning must jump back to the newest screen without being asked —
+  // when live cannot show it (the mirror again).
   await page.evaluate(() => window.__setAway(true));
   await page.evaluate(() => window.__paint("sidebar", 40));
   await page.waitForTimeout(2400);
-  await page.evaluate(() => window.__setAway(false));
-  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    window.__paint("mirror");
+    window.__setAway(false);
+  });
+  await page.waitForTimeout(900);
   const afterReturn = await page.locator('img[alt="共有された画面"]').getAttribute("src");
   check(
     afterReturn === (await page.locator("[data-bubble] img").first().getAttribute("src")),
     "また戻ると最新の画面が出ている",
+  );
+
+  /**
+   * The way people actually leave: to another application.
+   *
+   * This tab stays visible and merely loses focus, so `document.hidden` never
+   * goes true. The recorder was narrowed to `hidden` alone to stop Chrome's
+   * sharing bar from filling the buffer at startup, and that narrowing turned
+   * the whole feature off on real hardware while every check here stayed green
+   * — because this stub could not express the difference. It can now, and this
+   * is the case that broke (log.md 2026-08-23).
+   */
+  await page.mouse.click(8, 400);
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.__paint("mirror"));
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.__setAway(true, "app"));
+  // The desktop takes a moment to finish switching; the frame grabbed at that
+  // instant is still this page, and is held as the calibration rather than
+  // kept. Only what comes after it is a screen they went to look at.
+  await page.waitForTimeout(700);
+  await page.evaluate(() => window.__paint("sidebar"));
+  await page.waitForTimeout(2400);
+  check(
+    (await strip(page)) >= 1,
+    "別アプリへ行っても（タブは見えたまま）画面が控えられる",
+    `候補=${await strip(page)}`,
+  );
+  check(
+    await page.evaluate(() => !document.hidden),
+    "そのとき document.hidden は立っていない（＝hidden だけでは検知できない離れ方）",
+  );
+  await page.evaluate(() => {
+    window.__paint("mirror");
+    window.__setAway(false, "app");
+  });
+  await page.waitForTimeout(900);
+  check(
+    (await page.locator('img[alt="共有された画面"]').count()) === 1,
+    "別アプリから戻ると、控えた画面が大写しになる",
+  );
+  check(
+    await page.locator("[data-bubble]").getByText("これについて解説しますか").isVisible(),
+    "戻ったときに「これについて解説しますか」と問われる",
   );
 
   // The margin around the picture is "outside": clicking it puts the still
@@ -409,16 +585,19 @@ console.log("\n[ウィンドウを共有]");
    * a real share, an unfocused window kept producing 0.03–0.04 of real change
    * per second where a stopped source reads exactly 0.000 (log.md 2026-08-22).
    *
-   * This section also used to check three things, none of them the wash, the
-   * bubble or a word of guidance — so "does a window share look like the rest
-   * of the product" was never asked at all.
+   * It also keeps the recent-screens buffer now: a shared browser window can
+   * be the hall of mirrors exactly like a shared monitor, and switching tabs —
+   * the one way its owner goes to look at something else — fires `hidden`, so
+   * the frames kept are of the tab they went to (docs/solo-mode.md §4).
    */
   check(
     (await page.locator("video").first().isVisible()) &&
       (await page.locator('img[alt="共有された画面"]').count()) === 0,
     "共有直後からライブ映像が出る（静止画ではない）",
   );
-  check((await strip(page)) === 0, "候補の切り替えは出ない");
+  await page.locator("[data-bubble]").getByText("これはテストの初回説明です。").waitFor({ timeout: 8000 });
+  check(true, "共有開始と同時に、初回説明がバブルに出る");
+  check((await strip(page)) === 0, "共有直後は候補が無い");
   check((await page.locator("div[data-guide]").count()) === 1, "指す前はカバーとスポットライトが出ている");
   check((await page.locator('[data-mode="live"]').count()) === 1, "右上は「ライブ」と名乗る");
   check(
@@ -447,16 +626,173 @@ console.log("\n[ウィンドウを共有]");
   await page.waitForTimeout(300);
   check((await page.locator('img[alt="共有された画面"]').count()) === 0, "Escで閉じるとライブに戻る");
 
-  // Going to the window and back must leave the live view alone: there is
-  // nothing to re-take when the picture never stopped.
+  // Going to another tab and back while the shared window still shows the
+  // same thing: live already shows it, so no still is put up — a working live
+  // view must not be demoted for nothing. The buffer records all the same.
   await page.evaluate(() => window.__setAway(true));
   await page.evaluate(() => window.__paint("rows"));
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(2400);
   await page.evaluate(() => window.__setAway(false));
   await page.waitForTimeout(900);
+  check((await strip(page)) >= 1, "離れている間の画面は控えられている", `候補=${await strip(page)}`);
   check(
     (await page.locator('img[alt="共有された画面"]').count()) === 0,
-    "行って戻ってもライブのまま（撮り直しは要らない）",
+    "ライブが同じ画面を映しているなら、戻ってもライブのまま",
+  );
+
+  // The browser's own window shared, the user switches tabs to look at what
+  // they want explained, and comes back: live is this page again — the mirror
+  // — while the kept frame is the tab they went to. This is the one case the
+  // still goes up, asked as a question. The trick is never taught in words;
+  // it just works for whoever wanders off and comes back anyway.
+  await page.evaluate(() => window.__setAway(true));
+  await page.evaluate(() => window.__paint("sidebar", 20));
+  await page.waitForTimeout(2400);
+  await page.evaluate(() => {
+    window.__paint("mirror");
+    window.__setAway(false);
+  });
+  await page.waitForTimeout(900);
+  check(
+    (await page.locator('img[alt="共有された画面"]').count()) === 1,
+    "ライブが別の画面（合わせ鏡）なら、控えた画面が大写しになる",
+  );
+  check(
+    await page.locator("[data-bubble]").getByText("これはスクリーンショットです").isVisible(),
+    "それがスクリーンショットだと言う",
+  );
+  check(
+    await page.locator("[data-bubble]").getByText("これについて解説しますか").isVisible(),
+    "「解説しますか」と聞く",
+  );
+  // Tapping the offered screen must answer, exactly as on a monitor share.
+  sent.length = 0;
+  await page.locator("[data-bubble] img").first().click();
+  for (let waited = 0; waited < 40 && sent.length === 0; waited += 1) {
+    await page.waitForTimeout(100);
+  }
+  check(
+    sent.length === 1 && sent[0]?.input?.question?.includes("この画面について"),
+    "候補をタップすると、その画面の説明が走る",
+    sent[0]?.input?.question ?? "何も送っていない",
+  );
+  await page.close();
+}
+
+// ── 自分の画面を共有してしまった場合（合わせ鏡） ──────────────
+console.log("\n[自分の画面を共有した（合わせ鏡）]");
+{
+  /**
+   * One situation, one answer, written down.
+   *
+   * Sharing the screen this page is on can only ever show the user
+   * themselves, and there is exactly one thing to do about it. So the page
+   * measures whether it is inside its own picture — it pulses the wash and
+   * watches the capture for it (lib/self-share.ts) — and then says the
+   * product's own words with the way out attached.
+   *
+   * It was the model's job before, and the model did what it was asked: it
+   * described the furniture. Worse, *what* it described was a coin toss,
+   * because a capture taken at share start races the page's own repaint and
+   * lands on either this page's front door or a hall of mirrors.
+   */
+  const page = await open("monitor", false, false, true);
+  await page.waitForSelector("video");
+  await page.waitForSelector("[data-bubble] button:has-text('画面を選び直す')", { timeout: 12000 });
+  check(true, "自分の画面だと分かり、選び直すボタンがバブルに出る");
+  check(
+    await page.locator("[data-bubble]").getByText("ご自身の画面が映っています").isVisible(),
+    "モデルの描写ではなく、決まった文言で状況を告げる",
+  );
+  check(
+    (await page.locator("[data-bubble]").getByText("これはテストの初回説明です。").count()) === 0,
+    "モデルの説明は出さない（このページ自身についての描写だから）",
+  );
+  console.log("  " + (await panel(page)).split("\n").find((line) => line.includes("自己共有")));
+
+  // Pressing it must actually reopen the picker, which means ending the share
+  // first — Chrome will not open one over a live share.
+  await page.locator("[data-bubble] button:has-text('画面を選び直す')").click();
+  await page.waitForTimeout(600);
+  check(
+    (await page.locator("video").count()) === 1,
+    "押すと選び直しが走り、新しい共有が始まる",
+  );
+  await page.close();
+}
+
+// ── 共有した画面で動画が流れている（合わせ鏡ではない） ────────────
+console.log("\n[共有画面が動き続けている（合わせ鏡ではない）]");
+{
+  /**
+   * The case a single "did it change?" test cannot tell from a self share.
+   *
+   * A shared screen with something playing changes every frame, for reasons
+   * that have nothing to do with us. The probe pulses twice and looks for a
+   * shape rather than a size — the middle frame apart from both neighbours
+   * while those two resemble each other — which drift cannot imitate.
+   */
+  const page = await open("monitor");
+  await page.waitForSelector("video");
+  await page.evaluate(() => window.__setDrifting(true));
+  await page.locator("[data-bubble]").getByText("これはテストの初回説明です。").waitFor({ timeout: 12000 });
+  check(
+    (await page.locator("[data-bubble] button:has-text('画面を選び直す')").count()) === 0,
+    "動き続けているだけの画面を、自分の画面と誤認しない",
+  );
+  console.log("  " + (await panel(page)).split("\n").find((line) => line.includes("自己共有")));
+  await page.evaluate(() => window.__setDrifting(false));
+  await page.close();
+}
+
+// ── 画面全体を共有・共有バーがフォーカスを奪う（実機の始まり方） ──────
+console.log("\n[画面全体・共有バーがフォーカスを奪った状態で開始]");
+{
+  /**
+   * How a share really begins: Chrome's "sharing your screen" bar takes focus,
+   * and this page cannot take it back. So `hasFocus()` is false while the user
+   * is sitting right here, looking at the page, having gone nowhere.
+   *
+   * The recorder counts focus again (it has to — `hidden` never fires for
+   * another application), so without a latch it reads that opening state as
+   * "away" and records the one screen never worth keeping. On real hardware
+   * the very first thing the product said was 「直前に見ていたページです。これに
+   * ついて解説しますか？」 next to a picture of itself (log.md 2026-08-23).
+   */
+  const page = await open("monitor", false, true);
+  await page.waitForSelector("video");
+  await page.locator("[data-bubble]").getByText("これはテストの初回説明です。").waitFor({ timeout: 8000 });
+  check(
+    await page.evaluate(() => !document.hasFocus() && !document.hidden),
+    "共有直後はフォーカスが無い（共有バーが持っている）が、隠れてもいない",
+  );
+
+  // Long enough that a recorder without the latch would have several frames.
+  await page.waitForTimeout(3200);
+  check(
+    (await strip(page)) === 0,
+    "まだどこへも行っていないので、候補は1枚も作られない",
+    `候補=${await strip(page)}`,
+  );
+  check(
+    (await page.locator("[data-bubble]").getByText("直前に見ていたページです").count()) === 0,
+    "「直前に見ていたページです」とは言わない（行っていないのだから）",
+  );
+
+  // The user clicks in — now this page has held focus, and from here on
+  // "unfocused" really does mean they went somewhere.
+  await page.evaluate(() => window.__setAway(false));
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.__paint("mirror"));
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.__setAway(true, "app"));
+  await page.waitForTimeout(700);
+  await page.evaluate(() => window.__paint("sidebar"));
+  await page.waitForTimeout(2400);
+  check(
+    (await strip(page)) >= 1,
+    "一度こちらを触ったあとは、別アプリへ行けば控えられる",
+    `候補=${await strip(page)}`,
   );
   await page.close();
 }
@@ -467,6 +803,10 @@ console.log("\n[タブを共有・フォーカス保持]");
   const page = await open("browser", true);
   await page.waitForSelector("text=ライブ表示・バッファなし");
   check(true, "タブ共有としてフォーカス保持ありで開始する");
+  // The first look happens here too — a tab is a screen like any other — and
+  // it must resolve before this section starts counting requests.
+  await page.locator("[data-bubble]").getByText("これはテストの初回説明です。").waitFor({ timeout: 8000 });
+  check(true, "共有開始と同時に、初回説明がバブルに出る");
   check(
     (await page.locator("video").first().isVisible()) &&
       (await page.locator('img[alt="共有された画面"]').count()) === 0,
@@ -714,18 +1054,20 @@ console.log("\n[タブを共有・フォーカス保持]");
   await page.getByRole("button", { name: "いまの画面を取り直す" }).click();
   await page.waitForTimeout(200);
 
-  // The grip carries no label — one that has to say it is a grip is not one —
-  // but it has to actually move the bubble, and must not be able to drop it
-  // somewhere nothing could reach it again.
+  // The grip needs no visible instruction, but it is still a named button for
+  // assistive technology. It has to actually move the bubble, and must not be
+  // able to drop it somewhere nothing could reach it again.
   check((await page.locator("text=ドラッグで移動できます").count()) === 0, "「ドラッグで移動」の説明は無い");
   {
     const card = page.locator("[data-bubble]");
-    const grip = () => page.locator("[data-bubble] span.cursor-grab").first();
+    const grip = () => page.getByRole("button", { name: "解説を移動" }).first();
     const before = await card.boundingBox();
     let at = await grip().boundingBox();
-    await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+    const grabX = at.x + at.width / 2;
+    const grabY = at.y + at.height / 2;
+    await page.mouse.move(grabX, grabY);
     await page.mouse.down();
-    await page.mouse.move(at.x - 200, at.y - 150, { steps: 10 });
+    await page.mouse.move(grabX - 200, grabY - 150, { steps: 10 });
     await page.mouse.up();
     await page.waitForTimeout(200);
     const after = await card.boundingBox();

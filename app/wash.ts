@@ -18,6 +18,10 @@ import type { CSSProperties } from "react";
  * - A radial mask that cuts the whole overlay away under the cursor. The core
  *   is held fully clear, and the falloff then runs long and eased — a steep
  *   rim reads as a hole punched in a card, a long one as light.
+ * - A band that travels down the picture while the system takes its first
+ *   look. This is the one layer the demo does not use, because the demo has no
+ *   such moment — there is no share for it to read. Everything else here is
+ *   shared and must stay that way.
  */
 
 /**
@@ -46,6 +50,49 @@ const FALLOFF =
 export function spotMask(reach: number): string {
   return `radial-gradient(circle ${reach}px at var(--x, 50%) var(--y, 50%), ${FALLOFF})`;
 }
+
+/**
+ * The opening scan, laid over the wash while the first look is in flight.
+ *
+ * The wash says "this is a picture to point at". For the couple of seconds
+ * before anything has been asked, something also has to say "and it is being
+ * read, right now, all of it" — otherwise the share opens on a veiled picture
+ * that appears to be waiting for the user when it is the user who is waiting.
+ *
+ * A band rather than a spinner, and travelling over the whole picture rather
+ * than sitting in a corner, because what is being examined is the whole
+ * picture. It is the same iris as the wash and only a little brighter: this is
+ * the quietest of the layers, and it has to stay legible over a light screen
+ * and a dark one without touching either one's own lightness (the rule the
+ * whole file exists to protect).
+ */
+/**
+ * The pulse the page asks its question with (lib/self-share.ts).
+ *
+ * Laid over the scan for a third of a second, twice interrupted: if this page
+ * is inside the picture it is showing, the picture goes through it too, and
+ * that is the whole measurement. It has to be large and flat — a small or
+ * subtle change cannot be told from a video playing on the shared screen —
+ * which is why it is a full-bleed iris rather than a moving detail.
+ *
+ * It reads as the scan doing something, because during the opening scan a
+ * veil over the picture is already what is on screen. Nothing about it is
+ * decorative: take it away and the page has no way to know whether it is
+ * looking at itself.
+ */
+export const PULSE_STYLE: CSSProperties = {
+  background: "rgba(74,80,255,0.34)",
+};
+
+export const SCAN_STYLE: CSSProperties = {
+  background:
+    "linear-gradient(to bottom," +
+    " rgba(74,80,255,0) 0%, rgba(120,126,255,0.16) 42%," +
+    " rgba(160,166,255,0.30) 50%, rgba(120,126,255,0.16) 58%," +
+    " rgba(74,80,255,0) 100%)",
+  backgroundSize: "100% 44%",
+  backgroundRepeat: "no-repeat",
+};
 
 /**
  * Everything about the wash except the mask, which page focus may withhold.

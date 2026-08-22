@@ -16,11 +16,13 @@ import {
 } from "@/lib/screen-share";
 import {
   recordRecentScreens,
+  SAME_SCREEN,
   type RecentScreen,
   type RecentScreensHandle,
   type RecentScreensReport,
 } from "@/lib/recent-screens";
 import { withPointerMark } from "@/lib/marker";
+import { probeSelfShare } from "@/lib/self-share";
 import { createSharerPeer } from "@/lib/peer";
 import { createRoomId, formatRoomId, joinRoom, type RoomConnection } from "@/lib/room";
 import { accessToken, ensureProvisioned, signInWithGoogle } from "@/lib/session";
@@ -33,7 +35,7 @@ import { Join } from "@/app/join";
 import { Notice, Shell, useMounted } from "@/app/ui";
 import { markFrom, Snapshot, Stroke, type Point } from "@/app/snapshot";
 import { ExchangeBubble, placeBeside, write, type Rect } from "@/app/bubble";
-import { spotMask, WASH_STYLE } from "@/app/wash";
+import { PULSE_STYLE, SCAN_STYLE, spotMask, WASH_STYLE } from "@/app/wash";
 
 type Turn = { role: "user" | "assistant"; text: string };
 
@@ -124,6 +126,39 @@ function Home() {
    */
   const [mark, setMark] = useState<{ capture: Capture; pointer: Pointer | null; stroke: Point[] | null } | null>(null);
   const [answer, setAnswer] = useState<{ value: VisionSuccess; capture: Capture } | null>(null);
+  /**
+   * The model's first look at a freshly shared screen, said while live.
+   *
+   * Sharing is an explicit act, and it is answered like one: a single call the
+   * system makes by itself, with no question and no pointer — the contract's
+   * "initial observation" — whose words replace fixed usage copy in the
+   * bubble. The model is looking at what was actually shared, so it can say
+   * the thing this page structurally cannot know: two lines of orientation on
+   * a real screen, or, when the share is this very page mirrored into itself,
+   * the way out (share a window or a tab instead). Detecting the mirror here
+   * with heuristics was rejected for the same reason the fixed copy is gone:
+   * the page cannot see what the share shows, and the model can.
+   */
+  const [intro, setIntro] = useState<string | null>(null);
+  /**
+   * Whether this page is inside the picture it is showing (lib/self-share.ts).
+   *
+   * Measured, not asked about and not guessed: the wash pulses once during the
+   * opening scan and the capture is watched for it. A situation with exactly
+   * one right answer — you are showing yourself; pick again — is a route the
+   * product takes, with words the product wrote, and a button beside them.
+   * Leaving that to a model meant it came out as a description of whatever the
+   * capture happened to catch, which was a coin toss between this page's own
+   * front door and a hall of mirrors.
+   */
+  const [selfShare, setSelfShare] = useState(false);
+  const [probe, setProbe] = useState<{ pulse: number; release: number; drift: number } | null>(null);
+  /** Drives the wash's pulse. Read by the wash's style; written by the probe. */
+  const [pulsing, setPulsing] = useState(false);
+  /** The first look is in flight. Separate from `busy` because the wash and
+   * the spotlight turn on what the *user* has asked, and this is the system
+   * asking on its own behalf (see `guiding`). */
+  const [scanning, setScanning] = useState(false);
   const [question, setQuestion] = useState("");
   /** The typed question the bubble is answering, apart from the next draft. */
   const [asked, setAsked] = useState<string | null>(null);
@@ -170,11 +205,19 @@ function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const sourceRef = useRef<FrameSource | null>(null);
   const recorderRef = useRef<RecentScreensHandle | null>(null);
-  /** Whether the tab was actually hidden, as opposed to merely unfocused.
-   * Only a return from hidden may swap the view to a buffered candidate:
-   * clicking back in from another window on the same monitor recorded
-   * nothing, and must not slap an old still over the live picture. */
-  const wasHiddenRef = useRef(false);
+  /**
+   * Whether the user had actually gone somewhere — the same test the recorder
+   * uses, and it has to be the same one.
+   *
+   * This tracked `hidden` alone, to stop a mere click back into the window
+   * from slapping an old still over a live picture that had recorded nothing.
+   * Once the recorder went back to counting focus (lib/recent-screens.ts),
+   * that reasoning inverted: going to another application *does* record now,
+   * and a return from it is precisely when the kept screen is worth showing.
+   * What guards the live picture is no longer this flag but the measurement
+   * below — the kept screen goes up only when live is not already showing it.
+   */
+  const wasAwayRef = useRef(false);
 
   /**
    * Everything is watched live. There are only two reasons not to be.
@@ -203,7 +246,19 @@ function Home() {
    */
   const companionQuiet = surface === "monitor" && (companionOpen || roomId !== null);
   const watched = surface === "browser" ? keptFocus : !companionQuiet;
-  const buffered = surface === "monitor";
+  /**
+   * Which shares keep the recent-screens buffer.
+   *
+   * A monitor and a window can both be a hall of mirrors — the monitor when it
+   * is the one this page sits on, the window when it is this very browser —
+   * and in both, a natural way for their owner to go look at something else
+   * fires `hidden` (switching tabs; for a shared browser window that is the
+   * only move there is). So both record while hidden, and what they record is,
+   * by construction, the screen the user went to look at. A tab share is the
+   * one surface that never needs the rescue: it is always of one tab, and can
+   * never show this page inside itself.
+   */
+  const buffered = surface !== "browser";
 
   // Read in the browser only: the server has no navigator, and deciding there
   // would render the sharing side to every device, including the phones that
@@ -239,9 +294,17 @@ function Home() {
   })();
   const belongsToCurrent = mark !== null && mark.capture === currentCapture;
   const pointer = belongsToCurrent ? mark.pointer : null;
-  /** The wash and spotlight are up only until something has been asked —
-   * pointed at, or typed into the bottom bubble. */
-  const guiding = pointer === null && answer === null && !busy;
+  /**
+   * The wash is up until *the user* has asked something — pointed at, or typed
+   * into the bubble. The system's own first look does not count, and getting
+   * that wrong showed: the share opened on a bare picture, and the wash arrived
+   * with the answer. Backwards on both halves. The veil has to be there before
+   * the words, because its job is to say "this is a picture to read, and it is
+   * being read" — announcing that after the reading is finished says nothing.
+   */
+  const asking = busy && !scanning;
+  const guiding = pointer === null && answer === null && !asking;
+
 
   /**
    * Whether this window is the one the cursor is actually being reported to.
@@ -342,6 +405,11 @@ function Home() {
     setFrozen(null);
     setMark(null);
     setAnswer(null);
+    setIntro(null);
+    setScanning(false);
+    setSelfShare(false);
+    setProbe(null);
+    setPulsing(false);
     setTurns([]);
     setQuestion("");
     setAsked(null);
@@ -393,6 +461,24 @@ function Home() {
     if (intent === "companion") void openCompanion(share.stream);
   }, [accountReady, session, openCompanion, tAuth, tCap, errorText]);
 
+  /**
+   * Choose a different screen, without leaving.
+   *
+   * The way out of "you are sharing yourself" has to be one press. The old
+   * share is ended first because Chrome will not open its picker over a live
+   * one, so for a moment this page is back at its front door — which is also
+   * where somebody lands if they change their mind in the picker, and a fair
+   * place to be left.
+   *
+   * Declared after `start`: a useCallback's dependencies are read where it is
+   * written, so naming `start` above its own declaration is a crash at import
+   * time rather than a mistake anyone would see (see `selectCandidate`).
+   */
+  const repick = useCallback(async () => {
+    stop();
+    await start("here");
+  }, [stop, start]);
+
   // Stopping from the browser's own bar has to end things here too, or the page
   // goes on offering screens from a share that no longer exists.
   useEffect(() => {
@@ -440,6 +526,10 @@ function Home() {
     sourceRef.current = source;
 
     if (buffered) {
+      // The recorder holds itself back until this page has had focus once in
+      // this share (lib/recent-screens.ts): until then "unfocused" means
+      // Chrome's sharing bar, not the user, and recording through it offers
+      // people a picture of this very page as "the page you were just on".
       recorderRef.current = recordRecentScreens({
         source,
         onChange: (next, latest) => {
@@ -468,6 +558,105 @@ function Home() {
   }, [stream, buffered, surface, keptFocus, grabNow]);
 
   /**
+   * One look, taken by the system, the moment a share begins.
+   *
+   * It costs one model call per share, which is a deliberate amendment to
+   * "the user's explicit gesture starts every call": choosing a screen to
+   * share is that gesture, and the first thing anyone wants from a copilot
+   * that can see is proof that it can. It never freezes the picture and never
+   * marks anything — the page stays live, the words arrive in the bubble as
+   * its lead — and it seeds the history, so a question typed right after
+   * continues from what was just said. Skipped when the share was started for
+   * a companion device: the conversation is on the other screen, and words
+   * written here are read by nobody.
+   */
+  const introFor = useRef<MediaStream | null>(null);
+  useEffect(() => {
+    if (!stream) {
+      introFor.current = null;
+      return;
+    }
+    // One chance per share, decided at the start of it. A companion opening
+    // later must not fire this retroactively, and one closing must not either.
+    if (introFor.current === stream) return;
+    introFor.current = stream;
+    if (companionOpen || roomId !== null) return;
+    // The source is built by the effect above, which runs first because it is
+    // declared first. Without it there is nothing to look at or to measure.
+    if (!sourceRef.current) return;
+    const seq = ++sendSeq.current;
+    const abort = new AbortController();
+    void (async () => {
+      setBusy(true);
+      setScanning(true);
+      setError(null);
+
+      /**
+       * Two questions, asked at once, and one of them can end the other.
+       *
+       * "Am I looking at myself?" is measured here and settles in about a
+       * second; "what is this?" is asked of the model and takes several. They
+       * run together so that neither waits on the other — and if the answer to
+       * the first is yes, the second stops mattering mid-flight: whatever the
+       * model is composing is a description of this page's own furniture, and
+       * what the user needs instead is already written down.
+       */
+      const asked = probeSelfShare({
+        source: sourceRef.current!,
+        pulse: setPulsing,
+        cancelled: () => sendSeq.current !== seq,
+      }).then((result) => {
+        if (sendSeq.current !== seq) return result;
+        setProbe(result.readings);
+        if (result.selfShare) {
+          setSelfShare(true);
+          // Nothing the model says can be right about a picture of this page,
+          // so it is not waited for and not paid attention to when it lands.
+          abort.abort();
+          setBusy(false);
+          setScanning(false);
+        }
+        return result;
+      });
+
+      try {
+        const capture = await grabNow();
+        if (!capture || sendSeq.current !== seq) return;
+        const response = await askVision({
+          accessToken: await accessToken(),
+          imageBase64: capture.base64,
+          mediaType: capture.mediaType,
+          turns: [],
+          outputLanguage: outputLanguageFor(locale),
+          // The opening look has nothing pointed at, so boxes would be the
+          // model inventing a target.
+          wantsAnnotations: false,
+          signal: abort.signal,
+        });
+        if (sendSeq.current !== seq || abort.signal.aborted) return;
+        setIntro(response.result.message);
+        // Seeded as a turn so the next typed question continues from it. The
+        // user's side of it is the act that actually happened.
+        setTurns([
+          { role: "user", text: tAsk("sharedScreen") },
+          { role: "assistant", text: response.result.message },
+        ]);
+      } catch (caught) {
+        // An answer this page cancelled is not a failure to report.
+        if (sendSeq.current !== seq || abort.signal.aborted) return;
+        setError(errorText(caught, tErr("generic")));
+      } finally {
+        await asked;
+        if (sendSeq.current === seq) {
+          setBusy(false);
+          setScanning(false);
+        }
+      }
+    })();
+    return () => abort.abort();
+  }, [stream, companionOpen, roomId, grabNow, locale, tAsk, tErr, errorText]);
+
+  /**
    * Coming back to this tab is the whole interaction, so it is treated as one:
    * the newest screen is put up ready to be asked about. The answer already on
    * screen is left alone — somebody may have come back precisely to re-read it
@@ -477,22 +666,59 @@ function Home() {
   useEffect(() => {
     if (!stream) return;
     function onReturn() {
-      if (document.hidden) {
-        wasHiddenRef.current = true;
+      if (document.hidden || !document.hasFocus()) {
+        wasAwayRef.current = true;
         return;
       }
-      const cameBack = wasHiddenRef.current;
-      wasHiddenRef.current = false;
+      const cameBack = wasAwayRef.current;
+      wasAwayRef.current = false;
       if (watched) {
         if (buffered) {
-          // A live monitor share: coming back from hidden, the screen worth
-          // asking about is the one from a moment before returning, so the
-          // newest candidate is put up ready. Merely regaining focus recorded
-          // nothing and changes nothing. The exchange survives either way —
-          // coming back to re-read an answer is a normal reason to come back.
+          // A live monitor or window share: coming back from hidden, the
+          // screen worth asking about may be the one from a moment before
+          // returning — but only when live is not already showing it. On a
+          // second monitor or somebody else's window, the live picture never
+          // stopped being the thing itself, and putting a still of the same
+          // screen over it would demote a working live view for nothing. So
+          // the newest candidate is measured against a live frame, on the
+          // same line that separates two moments of one screen from two
+          // screens (SAME_SCREEN — measured, not guessed). The still goes up
+          // only when live shows something else — which handles the hall of
+          // mirrors without ever claiming to have detected one. Merely
+          // regaining focus recorded nothing and changes nothing, and the
+          // exchange survives either way: coming back to re-read an answer is
+          // a normal reason to come back.
           if (cameBack && screens.length > 0) {
-            setIndex(0);
-            setFrozen(screens[0].capture);
+            const newest = screens[0];
+            const seqAt = sendSeq.current;
+            const raise = () => {
+              // A question sent in the meantime owns the view now, and so does
+              // having left again before the comparison came back.
+              if (sendSeq.current !== seqAt || document.hidden || !document.hasFocus()) return;
+              setIndex(0);
+              setFrozen(newest.capture);
+            };
+            const source = sourceRef.current;
+            if (!source) raise();
+            else
+              // Grabbed a beat after the return, not at it: the first frame
+              // after visibilitychange can still be of where the user was, and
+              // compared that early, the kept screen and the live frame are
+              // the same picture — so the rescue never fired at exactly the
+              // moment it was for. Half a second is one to a few frames of any
+              // real capture. If the frame is somehow still stale after that,
+              // the offered thumbnails remain the way to the kept screen.
+              window.setTimeout(() => {
+                if (sendSeq.current !== seqAt || document.hidden || !document.hasFocus()) return;
+                void source
+                  .grab()
+                  .then((frame) => {
+                    if (difference(newest.signature, frame.signature) > SAME_SCREEN) raise();
+                  })
+                  // No frame to compare against: a kept screen beats a live
+                  // view that cannot produce one.
+                  .catch(raise);
+              }, 500);
           }
           return;
         }
@@ -511,9 +737,11 @@ function Home() {
     }
     document.addEventListener("visibilitychange", onReturn);
     window.addEventListener("focus", onReturn);
+    window.addEventListener("blur", onReturn);
     return () => {
       document.removeEventListener("visibilitychange", onReturn);
       window.removeEventListener("focus", onReturn);
+      window.removeEventListener("blur", onReturn);
     };
   }, [stream, buffered, watched, screens, grabNow]);
 
@@ -545,7 +773,7 @@ function Home() {
    * wired to any product behaviour: this is an instrument, not a feature.
    */
   useEffect(() => {
-    if (!debug || !stream || buffered) return;
+    if (!debug || !stream || surface === "monitor") return;
     let previous: Uint8ClampedArray | null = null;
     let stopped = false;
     const samples: { drift: number; front: boolean }[] = [];
@@ -573,7 +801,7 @@ function Home() {
       stopped = true;
       clearInterval(timer);
     };
-  }, [debug, stream, buffered]);
+  }, [debug, stream, surface]);
 
   /**
    * One place where a question is actually sent.
@@ -771,40 +999,56 @@ function Home() {
    *
    * Every mode has something the user needs told — what is on screen, why it
    * looks like that, what to do next — and there is exactly one place that
-   * talks. Whole-monitor sharing is the case that most needs it: the picture
-   * may well be this very page, and somebody who has never met a hall of
-   * mirrors cannot be expected to work out that the way through is to go
-   * somewhere else and come back.
-   *
-   * It cannot be known whether the shared monitor is the one this page sits on
-   * (docs/capabilities.md §4-B), so the sentence is conditional rather than a
-   * claim: a second-monitor user reads "if what you see is this page" and
-   * moves on.
+   * talks. While live, the title states the one fact this page knows for
+   * certain (which kind of surface is shared) and the lead is the model's
+   * first look at it. The fixed copy that used to teach "go to the screen you
+   * want explained and come back" is gone on purpose: it described a trick
+   * nobody could be expected to keep in their head, and the model, which can
+   * see what was actually shared, says something better — including, when the
+   * share is this page mirrored into itself, that the way to have a screen on
+   * this same computer explained is to share a window or a tab instead. The
+   * buffer stays, unannounced: for whoever wanders off and comes back anyway,
+   * the kept screen appears and asks if it was the one they meant.
    */
-  const say = ((): { title: string; lead: string } | null => {
-    if (buffered) {
-      // Two different situations, and the second one badly needs saying.
-      //
-      // Before any screens are kept, the user is looking at a live monitor —
-      // possibly at this very page — and needs to know the way through is to go
-      // somewhere else and come back.
-      //
-      // Afterwards they are looking at something that is *not* live and never
-      // said so: a frame kept while they were away. Having chosen to watch
-      // their own screen, live can only ever show them themselves, so the
-      // buffer is a rescue — and a rescue nobody explained just looks like the
-      // picture having quietly stopped following along.
-      return screens.length > 0
-        ? { title: t("shotTitle"), lead: t("shotLead") }
-        : { title: t("wholeScreenTitle"), lead: t("wholeScreenLead") };
+  const say = ((): {
+    title: string;
+    lead: string;
+    actions?: { id: string; label: string; onClick: () => void }[];
+  } | null => {
+    /**
+     * The one situation with a fixed answer, so it gets a fixed answer.
+     *
+     * Sharing the screen this page is on can only ever show the user
+     * themselves, and there is exactly one thing to do about it. That is a
+     * route, not a question — the words are the product's, written once, and
+     * the button that carries them out sits under them. It used to be left to
+     * the model, which described the furniture of this page ("デバッグ情報が
+     * 表示され、中央の大部分は空白です") because describing is what it was
+     * asked to do, and what it described changed run to run depending on
+     * whether the capture had caught the mirror yet.
+     */
+    if (selfShare) {
+      return {
+        title: t("mirrorTitle"),
+        lead: t("mirrorLead"),
+        actions: [{ id: "repick", label: t("repick"), onClick: () => void repick() }],
+      };
     }
-    // A window share is live like the rest now, so it needs no special
-    // explanation of what it is — only a pointer at the remedy if the picture
-    // ever does look old. Deliberately no claim about *why* it might: whether a
-    // fully covered window stops being drawn is still unmeasured, and asserting
-    // an unmeasured thing is what put this surface on a still for months.
-    if (surface === "window") return { title: t("windowTitle"), lead: t("windowLead") };
-    return { title: t("inviteTitle"), lead: t("inviteLead") };
+    // A still put up from the buffer and not yet asked about has to say what
+    // it is: a frame kept while the user was away. Having shared the screen
+    // this page sits on, live could only ever show them themselves, so the
+    // buffer is a rescue — and a rescue nobody explained just looks like the
+    // picture having quietly stopped following along.
+    if (buffered && frozen !== null && !belongsToCurrent) {
+      return { title: t("shotTitle"), lead: t("shotLead") };
+    }
+    const title =
+      surface === "monitor"
+        ? t("wholeScreenTitle")
+        : surface === "window"
+          ? t("windowTitle")
+          : t("inviteTitle");
+    return { title, lead: intro ?? t("inviteLead") };
   })();
 
   /** The buffer, asked as the question it has always been: was it this one?
@@ -1017,9 +1261,24 @@ function Home() {
    * all — it sat at 0,0 still carrying the `visibility: hidden` it mounts with,
    * which is to say the question box was simply not there.
    */
+  const bubbleWatch = useRef<ResizeObserver | null>(null);
   const attachBubble = useCallback((node: HTMLDivElement | null) => {
     bubbleRef.current = node;
-    if (node) placeBubble();
+    bubbleWatch.current?.disconnect();
+    bubbleWatch.current = null;
+    if (!node) return;
+    placeBubble();
+    // The size watcher is wired here, in the same ref callback, and not in an
+    // effect: the node appears when a share starts, which is not a moment any
+    // dependency of placeBubble changes, so an effect keyed on it had already
+    // run against a null ref and never came back. The waiting bubble was
+    // placed once at its first size and then left there — invisible until the
+    // first thing that grows it without a new mark (the system's first look),
+    // which pushed its bottom out of the corner. Same trap as the initial
+    // placement (log.md 2026-08-22), same remedy.
+    const observer = new ResizeObserver(placeBubble);
+    observer.observe(node);
+    bubbleWatch.current = observer;
   }, [placeBubble]);
 
   // Before paint on every new mark, and again whenever the bubble changes size
@@ -1030,15 +1289,8 @@ function Home() {
   }, [placeBubble]);
 
   useEffect(() => {
-    const element = bubbleRef.current;
-    if (!element) return;
-    const observer = new ResizeObserver(placeBubble);
-    observer.observe(element);
     window.addEventListener("resize", placeBubble);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", placeBubble);
-    };
+    return () => window.removeEventListener("resize", placeBubble);
   }, [placeBubble]);
 
   /**
@@ -1182,6 +1434,8 @@ function Home() {
           buffered={buffered}
           watched={watched}
           liveness={liveness}
+          probe={probe}
+          selfShare={selfShare}
         />
       )}
 
@@ -1409,11 +1663,34 @@ function Home() {
               // front-page demo so the two can never drift apart. So do the
               // lessons that shaped it (why dimming is a filter, not a paint).
               ...WASH_STYLE,
-              maskImage: focused ? SPOT_MASK : undefined,
-              WebkitMaskImage: focused ? SPOT_MASK : undefined,
+              // No spotlight while the first look runs: a hole under the
+              // cursor means "point here", and what is true in that moment is
+              // that all of it is being looked at. The band below says that
+              // instead, and the light arrives when the scan ends — which is
+              // also when pointing becomes the useful thing to do.
+              maskImage: focused && !scanning ? SPOT_MASK : undefined,
+              WebkitMaskImage: focused && !scanning ? SPOT_MASK : undefined,
               transition: "mask-image 120ms linear",
             }}
           />
+        )}
+
+        {/* The opening scan. Over the wash rather than part of it, because it
+            belongs to a moment rather than to a state — and because the wash
+            is shared with the front-page demo, which has nothing to scan. */}
+        {guiding && scanning && (
+          <div
+            data-scan=""
+            aria-hidden
+            className="io-scan pointer-events-none absolute inset-0"
+            style={SCAN_STYLE}
+          />
+        )}
+
+        {/* The page asking whether it is inside its own picture
+            (lib/self-share.ts). Rendered over the scan it hides inside. */}
+        {pulsing && (
+          <div data-pulse="" aria-hidden className="pointer-events-none absolute inset-0" style={PULSE_STYLE} />
         )}
 
       </div>
@@ -1509,12 +1786,18 @@ function DebugPanel({
   buffered,
   watched,
   liveness,
+  probe,
+  selfShare,
 }: {
   screens: RecentScreen[];
   report: RecentScreensReport | null;
   index: number;
   buffered: boolean;
   watched: boolean;
+  /** The self-share probe's three readings (lib/self-share.ts). The verdict is
+   * only arguable if the numbers behind it can be read. */
+  probe: { pulse: number; release: number; drift: number } | null;
+  selfShare: boolean;
   /** Frame-to-frame drift, newest first, tagged 表/裏 by whether this tab had
    * focus. Only decisive on a window that changes by itself
    * (docs/capabilities.md §4-B). */
@@ -1522,6 +1805,9 @@ function DebugPanel({
 }) {
   const gaps = report?.intervals ?? [];
   const route = report === null ? "未取得" : report.viaTrack ? "track (ImageCapture)" : "video element";
+  const probed = probe
+    ? `自己共有 ${selfShare ? "YES" : "no"}（脈 ${probe.pulse.toFixed(3)} / 戻り ${probe.release.toFixed(3)} / 流れ ${probe.drift.toFixed(3)}）`
+    : "自己共有 未測定";
   if (!buffered) {
     // Saying "0 candidates" here would read as a buffer that found nothing,
     // when in fact these shares never needed one.
@@ -1529,10 +1815,11 @@ function DebugPanel({
       <div className="shrink-0 space-y-0.5 border-y border-white/10 bg-black/60 px-3 py-1 font-mono text-[10px] leading-tight text-white/60">
         <div>
           {watched
-            ? "ライブ表示・バッファなし（タブ保持 or ウィンドウ）"
+            ? "ライブ表示・バッファなし（タブ・フォーカス保持）"
             : "タブ共有・フォーカス保持なし（戻るたびに撮り直し）"}{" "}
           / 取得元 {route}
         </div>
+        <div>{probed}</div>
         {/* 裏 = this tab had focus, so the shared window was behind. Zeros
             only mean something on a window that moves by itself. */}
         <div>
@@ -1554,6 +1841,13 @@ function DebugPanel({
       <div>
         drift: {screens.map((screen) => (screen.drift === null ? "new" : screen.drift.toFixed(3))).join(" ")}
       </div>
+      <div>{probed}</div>
+      {liveness.length > 0 && (
+        <div>
+          動き(1秒ごとの差・裏=共有窓が背面):{" "}
+          {liveness.map((at) => `${at.drift.toFixed(3)}${at.front ? "裏" : "表"}`).join(" ")}
+        </div>
+      )}
     </div>
   );
 }

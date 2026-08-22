@@ -82,6 +82,13 @@ export type AskInput = {
    * for is the part in the wrong language.
    */
   outputLanguage: "japanese" | "english";
+  /**
+   * Whether the answer should come with coordinate boxes. On by default — the
+   * web client cannot measure the screen, so boxes are how it points — but the
+   * opening look at a freshly shared screen has nothing pointed at, and asking
+   * for boxes there would be asking the model to invent a target.
+   */
+  wantsAnnotations?: boolean;
   signal?: AbortSignal;
 };
 
@@ -134,7 +141,7 @@ export async function askVision(input: AskInput): Promise<VisionSuccess> {
           pointer: input.pointer,
           // The browser can draw on the capture but cannot measure the screen,
           // so coordinates are the only way to point at anything.
-          wants_annotations: true,
+          wants_annotations: input.wantsAnnotations ?? true,
         },
         preferences: { output_language: input.outputLanguage },
         client: { platform: "web", app_version: "0.1.0" },

@@ -152,3 +152,38 @@ body {
     animation: none;
   }
 }
+
+/* ---- The opening scan (app/wash.ts, app/page.tsx) ----
+   A band travelling down the picture while the system takes its first look at
+   a freshly shared screen. It is the only thing on the page that says "all of
+   this is being read, now" — the wash alone says "point at something", which
+   is the opposite instruction to give somebody who is being made to wait.
+
+   Background-position only, so it costs no layout over live video — the same
+   discipline as the pin's pulse above. One pass down, then a pause at the
+   bottom before it starts again: a band that never stops sweeping reads as a
+   progress bar that has stalled, while one that rests reads as looking. */
+@keyframes ioScan {
+  0% {
+    background-position: 0 -44%;
+  }
+  70% {
+    background-position: 0 100%;
+  }
+  100% {
+    background-position: 0 100%;
+  }
+}
+.io-scan {
+  animation: ioScan 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Reduced motion keeps the layer but stops it moving: a still band would sit
+   somewhere arbitrary and read as a fault, so it becomes an even veil that
+   simply says the picture is being read. */
+@media (prefers-reduced-motion: reduce) {
+  .io-scan {
+    animation: none;
+    background: rgba(120, 126, 255, 0.14);
+  }
+}

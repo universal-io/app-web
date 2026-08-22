@@ -45,8 +45,21 @@ const DEFAULT_MAX = 12;
  * that matters — and it errs towards keeping two entries rather than merging
  * two applications, because a spare candidate is a thumbnail to skip while a
  * merged one is a screen that cannot be asked about at all.
+ *
+ * Exported because the same line decides, on returning to this tab, whether
+ * the live picture already shows what the newest candidate holds — one
+ * measured threshold, used for one meaning, in both places (app/page.tsx).
  */
-const SAME_SCREEN = 0.12;
+export const SAME_SCREEN = 0.12;
+
+/**
+ * How long after turning away the calibration frame is allowed to speak for.
+ *
+ * Long enough to cover a desktop switching applications, short enough that a
+ * calibration frame taken too late — one that caught the destination rather
+ * than the departure — cannot suppress more than a couple of frames of it.
+ */
+const SETTLING_MS = 2_500;
 
 export type RecentScreen = {
   /** Stable across in-place updates, so the strip does not reshuffle itself. */
@@ -94,28 +107,61 @@ export function recordRecentScreens(options: {
   let grabbing = false;
   let stopped = false;
   let lastGrabAt = 0;
+  /** What the share showed at the moment the user turned away — this page, on
+   * a share that contains it. Anything still matching it is not a screen they
+   * went to look at. Cleared on every return, because the next departure
+   * leaves from somewhere else. */
+  let leaving: Uint8ClampedArray | null = null;
+  let leftAt = 0;
   const gaps: number[] = [];
 
   /**
-   * Only `hidden` counts, and the reason is worth keeping.
+   * Away is losing focus, not only being hidden — and getting this wrong cost
+   * the feature its whole point.
    *
-   * This first also treated "visible but unfocused" as away, reasoning that
-   * another application on top of this one looks the same from the shared
-   * screen's point of view. On a whole-monitor share it does not: unfocused but
-   * still on screen means the frame is of this page. And Chrome's own "is
-   * sharing your screen" bar is a separate window that takes focus the moment
-   * sharing begins — so capturing started immediately, with the page in full
-   * view, and every frame swallowed the one before it. Four candidates deep in
-   * a hall of mirrors, before the user had gone anywhere.
+   * `hidden` is true when this tab is not the frontmost tab of its window, or
+   * the window is minimised. **It is not true when another application comes
+   * to the front**, which is exactly, and almost only, how somebody goes to
+   * look at the screen they want explained. Narrowed to `hidden` alone, the
+   * recorder therefore never ran on real hardware: the user went to another
+   * app, came back, and was offered nothing — while the synthetic check, which
+   * fakes `hidden` directly, stayed green through every session.
    *
-   * `hidden` alone gives up the side-by-side windows case: another application
-   * covering this one leaves the tab visible, so nothing is recorded. That is a
-   * missed screen rather than a poisoned buffer, and it is a real limit of
-   * capturing a whole monitor from inside it — not a threshold to tune
-   * (docs/solo-mode.md §4).
+   * It was narrowed for a real reason. Chrome's own "sharing your screen" bar
+   * is a separate window that takes focus the moment sharing begins, so with
+   * focus as the signal, recording started instantly with this page in full
+   * view and filled the buffer with a hall of mirrors before the user had gone
+   * anywhere (log.md). That is a startup problem, and it is answered where it
+   * happens: the recorder is not started until the opening look has finished
+   * (app/page.tsx), which is well past the moment the bar grabs focus.
+   *
+   * What remains is the side-by-side case: this page is still visible while
+   * the user works in another application. The frame then shows that
+   * application in front with this page beside or behind it — which is a fair
+   * picture of what they were looking at, not a mirror. A frame that is purely
+   * this page only happens when this page is frontmost, and then it has focus
+   * and nothing is recorded at all.
    */
+  /**
+   * Has the user's attention been on this page at any point in this share?
+   *
+   * Until it has, "unfocused" does not mean they went anywhere. Sharing hands
+   * focus to Chrome's own "sharing your screen" bar — a separate window this
+   * page cannot take it back from — so from the moment a share begins until
+   * the moment the user first clicks in, `hasFocus()` is false while the user
+   * is sitting right here looking at the page. Recording through that records
+   * the page: the offer appeared before anyone had gone anywhere, saying
+   * "直前に見ていたページです" about a picture of itself.
+   *
+   * The latch belongs to the recorder, so it belongs to the share: a new share
+   * starts closed however long the page was focused before it.
+   */
+  let heldFocus = false;
+
   function away(): boolean {
-    return document.hidden;
+    if (document.hidden) return true;
+    if (!heldFocus) return false;
+    return !document.hasFocus();
   }
 
   function absorb(frame: Frame, now: number): void {
@@ -162,6 +208,27 @@ export function recordRecentScreens(options: {
       // essentially the same screen — while keeping it would put the copilot
       // into the list of screens to ask the copilot about.
       if (stopped || !away()) return;
+      // The same, one beat earlier: the desktop takes a few hundred
+      // milliseconds to finish switching, so the first frame after focus goes
+      // can still be this page. Held rather than absorbed, it becomes the one
+      // thing every later frame is checked against — if the picture has not
+      // moved off this page yet, there is nothing to keep. This is the frame
+      // the recorder used to throw away on purpose; kept, it does more work
+      // than discarding it ever did.
+      if (!leaving) {
+        leaving = frame.signature;
+        leftAt = Date.now();
+        return;
+      }
+      // Only while the desktop is still settling. The calibration frame is
+      // taken on trust — that the grab resolves before the switch completes —
+      // and trust needs a bound: if it resolved late, it holds a picture of
+      // the screen the user actually went to, and an unbounded filter would
+      // then silently discard every frame of the one thing worth keeping. A
+      // few seconds cannot be wrong for long. Past that, whatever the share
+      // shows is what they turned to, and the worst case is one extra
+      // thumbnail rather than an empty offer.
+      if (Date.now() - leftAt < SETTLING_MS && difference(leaving, frame.signature) < SAME_SCREEN) return;
       const now = Date.now();
       if (lastGrabAt) gaps.unshift(now - lastGrabAt);
       if (gaps.length > 12) gaps.length = 12;
@@ -177,24 +244,31 @@ export function recordRecentScreens(options: {
 
   function sync(): void {
     if (stopped) return;
+    if (!document.hidden && document.hasFocus()) heldFocus = true;
     if (away() && !timer) {
-      // Deliberately no immediate grab. At the instant focus is lost the
-      // desktop has not finished switching, so the frame available right now is
-      // still this page — which would put a picture of the copilot into the
-      // list of screens to ask the copilot about. Waiting one interval costs
-      // nothing, because the user is still looking at whatever they turned to.
+      // The first tick is the calibration one (see `leaving`), so it is worth
+      // taking promptly rather than a whole interval later — until it lands
+      // there is nothing to tell this page's own picture apart from a screen
+      // worth keeping.
+      void tick();
       timer = setInterval(() => void tick(), intervalMs);
     } else if (!away() && timer) {
       clearInterval(timer);
       timer = null;
       lastGrabAt = 0;
+      leaving = null;
+      leftAt = 0;
     }
   }
+
+  // Read once at the start as well as on every event: a share that begins
+  // with this page focused (the picker did not hand focus away) must not wait
+  // for a focus event that already happened.
+  sync();
 
   document.addEventListener("visibilitychange", sync);
   window.addEventListener("blur", sync);
   window.addEventListener("focus", sync);
-  sync();
 
   return {
     stop(): void {

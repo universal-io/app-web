@@ -41,7 +41,9 @@ export const viewport: Viewport = {
   // The mirror fills the screen, so it has to reach under the notch and the
   // home indicator; the layouts pad themselves back out with safe-area insets.
   viewportFit: "cover",
-  // Pinch-zooming a frozen screenshot is useful. Not disabled.
+  // Browser zoom remains available on the entry pages. The companion handles
+  // pinching inside a frozen screen itself so only the picture — not its fixed
+  // controls or answer form — changes size.
   userScalable: true,
 };
 

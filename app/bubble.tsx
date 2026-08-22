@@ -64,9 +64,25 @@ export function ExchangeBubble({
     onGrabMove: (event: React.PointerEvent) => void;
     onGrabEnd: (event: React.PointerEvent) => void;
   };
-  /** What the page has to say about the state it is in, when it is not busy
-   * answering something. Two lines at most: where you are, and what to do. */
-  say?: { title: string; lead: string } | null;
+  /**
+   * What the page has to say about the state it is in, when it is not busy
+   * answering something. Two lines at most: where you are, and what to do.
+   *
+   * The words may be the model's or the product's own — a situation with one
+   * right answer is written down rather than asked about — and the reader is
+   * not told which, because the difference is ours and not theirs. What
+   * matters is that both arrive in the same place, in the same voice.
+   *
+   * `actions` is how the copilot can point at something to press. Guidance
+   * that names a step the user then has to find for themselves is guidance
+   * that stops halfway; the button belongs beside the sentence that asks for
+   * it, not in a toolbar the sentence has to describe.
+   */
+  say?: {
+    title: string;
+    lead: string;
+    actions?: { id: string; label: string; onClick: () => void }[];
+  } | null;
   /** Screens the user was looking at a moment ago, offered as a question
    * rather than presented as a strip of controls: the buffer's whole job is to
    * ask "was it this one?" (docs/solo-mode.md §4). */
@@ -99,22 +115,25 @@ export function ExchangeBubble({
       {bar && (
         <div className="flex items-center justify-between px-2 pt-1.5">
           {grip ? (
-            // No label. A grip that has to say it is a grip is not one — and
-            // the product's whole claim is that pointing beats reading.
-            <span
+            // The visible dots are enough instruction for sighted users. The
+            // control still has an accessible name, and the whole quiet part
+            // of the bar is a touch target rather than only the tiny glyph.
+            <button
+              type="button"
+              aria-label={t("move")}
               onPointerDown={grip.onGrab}
               onPointerMove={grip.onGrabMove}
               onPointerUp={grip.onGrabEnd}
               onPointerCancel={grip.onGrabEnd}
-              className="cursor-grab rounded p-1 text-white/25 transition-colors hover:text-white/50 active:cursor-grabbing"
+              className="flex h-10 flex-1 cursor-grab items-center rounded px-2 text-white/25 transition-colors hover:text-white/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70 active:cursor-grabbing"
               style={{ touchAction: "none" }}
             >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
+              <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden>
                 <circle cx="9" cy="7" r="1.4" /><circle cx="15" cy="7" r="1.4" />
                 <circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" />
                 <circle cx="9" cy="17" r="1.4" /><circle cx="15" cy="17" r="1.4" />
               </svg>
-            </span>
+            </button>
           ) : (
             <span />
           )}
@@ -137,9 +156,27 @@ export function ExchangeBubble({
           while there is an exchange: an answer and an explanation of the mode
           are two different subjects, and the bubble holds one at a time. */}
       {say && empty && (
-        <div className="space-y-1">
-          <p className="text-[13px] font-medium leading-relaxed text-white/90">{say.title}</p>
-          <p className="text-[12px] leading-relaxed text-white/60">{say.lead}</p>
+        <div className="space-y-2">
+          <div className="space-y-1">
+            <p className="text-[13px] font-medium leading-relaxed text-white/90">{say.title}</p>
+            <p className="text-[12px] leading-relaxed text-white/60">{say.lead}</p>
+          </div>
+          {say.actions && say.actions.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {say.actions.map((action) => (
+                <button
+                  key={action.id}
+                  onClick={action.onClick}
+                  // The one accent this product spends on "here, do this"
+                  // (docs/pointing.md §2.3). A guidance step is an action, so
+                  // it wears the action colour and nothing else does.
+                  className="rounded-lg bg-iris px-3 py-1.5 text-[12px] font-medium text-white transition hover:brightness-110"
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
